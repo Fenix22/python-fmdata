@@ -1,0 +1,56 @@
+name: Publish Python 🐍 distribution 📦 to PyPI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push events to the main branch and when a new tag is pushed
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'  # Example: v1.2.3
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/fmdata
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      # Cache pip dependencies for faster builds
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # (Optional) Run tests
+#      - name: Run tests
+#        run: |
+#          pytest
+
+      # Build the package
+      - name: Build package
+        run: |
+          python setup.py sdist bdist_wheel
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
