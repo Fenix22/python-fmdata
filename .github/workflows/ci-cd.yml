@@ -80,6 +80,6 @@ jobs:
           python setup.py sdist bdist_wheel
 
       - name: Publish package distributions to PyPI
-        if: ${{ env.PRE_RELEASE_VERSION == false }}
+        if: ${{ env.PRE_RELEASE_VERSION == 'false' }}
         uses: pypa/gh-action-pypi-publish@release/v1
 
