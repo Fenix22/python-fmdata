@@ -4,7 +4,7 @@ with open('README.md', 'r', encoding='utf-8') as ld:
     long_description = ld.read()
 
 setup(
-    name='python-fmdata',
+    name='fmdata',
     version='0.0.1',
     python_requires='>=3.8',
     author='Lorenzo De Siena',
