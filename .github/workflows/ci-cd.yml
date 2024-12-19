@@ -7,8 +7,7 @@ on:
       - main
     tags:
       - 'v*.*.*'  # Example: v1.2.3
-permissions:
-  contents: write
+
 env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
   PRE_RELEASE_VERSION: true
@@ -44,6 +43,8 @@ jobs:
 
       - name: Release version
         uses: softprops/action-gh-release@v2
+        permissions:
+          contents: write
         with:
           draft: ${{ env.DRAFT_VERSION }}
           prerelease: ${{ env.PRE_RELEASE_VERSION }}
