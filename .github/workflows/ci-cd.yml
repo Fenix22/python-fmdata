@@ -1,4 +1,4 @@
-name: Publish Python 🐍 distribution 📦 to PyPI
+name: Build and publish
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
       - main
     tags:
       - 'v*.*.*'  # Example: v1.2.3
+env:
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  PRE_RELEASE_VERSION: true
+  DRAFT_VERSION: true
 
 jobs:
   build-and-publish:
@@ -18,7 +22,30 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Sets env vars for main
+        if: ${{ env.BRANCH_NAME == 'main' }}
+        run: |
+          echo "PRE_RELEASE_VERSION=false" >> $GITHUB_ENV
+          echo "DRAFT_VERSION=false" >> $GITHUB_ENV
+
+      - name: Get next version
+        uses: reecetech/version-increment@2024.10.1
+        id: version
+        with:
+          scheme: semver
+          release_branch: main
+
+      - name: Set PACKAGE_VERSION Environment Variable
+        run: echo "PACKAGE_VERSION=${{ steps.version.outputs.version }}" >> $GITHUB_ENV
+
+      - name: Release version
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: ${{ env.DRAFT_VERSION }}
+          prerelease: ${{ env.PRE_RELEASE_VERSION }}
+          tag_name: "${{ steps.version.outputs.version }}"
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -41,9 +68,9 @@ jobs:
           pip install -r requirements.txt
 
       # (Optional) Run tests
-#      - name: Run tests
-#        run: |
-#          pytest
+      #      - name: Run tests
+      #        run: |
+      #          pytest
 
       # Build the package
       - name: Build package
@@ -51,5 +78,6 @@ jobs:
           python setup.py sdist bdist_wheel
 
       - name: Publish package distributions to PyPI
+        if: ${{ env.PRE_RELEASE_VERSION == false }}
         uses: pypa/gh-action-pypi-publish@release/v1
 

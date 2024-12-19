@@ -1,11 +1,15 @@
+import os
+
 from setuptools import setup
 
 with open('README.md', 'r', encoding='utf-8') as ld:
     long_description = ld.read()
 
+version = os.getenv('PACKAGE_VERSION', '0.0.1-dev')
+
 setup(
     name='fmdata',
-    version='0.0.1',
+    version=version,
     python_requires='>=3.8',
     author='Lorenzo De Siena',
     author_email='dev.lorenzo.desiena@gmail.com',
