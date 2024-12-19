@@ -9,16 +9,16 @@ from typing import List, Dict, Optional, Any, IO, Union
 
 import requests
 
-from statelessfm.fmclient.const import FMErrorEnum, APIPath
-from statelessfm.fmclient.inputs import ScriptsInput, OptionsInput, _scripts_to_dict, \
+from fmdata.const import FMErrorEnum, APIPath
+from fmdata.inputs import ScriptsInput, OptionsInput, _scripts_to_dict, \
     _portals_to_params, _sort_to_params, _date_formats_to_value, PortalsInput, \
     SortInput, QueryInput, DateFormats
-from statelessfm.fmclient.results import \
+from fmdata.results import \
     FileMakerErrorException, LogoutResult, CreateRecordResult, EditRecordResult, DeleteRecordResult, \
     GetRecordResult, ScriptResult, BaseResult, Message, LoginResult, UploadContainerResult, GetRecordsResult, \
     FindResult, SetGlobalResult, GetProductInfoResult, GetDatabasesResult, GetLayoutsResult, GetLayoutResult, \
     GetScriptsResult
-from statelessfm.fmclient.utils import clean_none
+from fmdata.utils import clean_none
 
 
 class LoginRetriedTooFastException(Exception):
@@ -26,20 +26,24 @@ class LoginRetriedTooFastException(Exception):
     def __init__(self, msg) -> None:
         super().__init__(msg)
 
+
 class SessionProvider:
 
     def login(self, fm_client: FMClient, **kwargs) -> str:
         raise NotImplementedError
 
+
 class DataSourceProvider:
     def provide(self, **kwargs) -> Dict:
         pass
+
 
 def fm_data_source_from_providers(providers: List[DataSourceProvider]) -> Optional[List[Dict]]:
     if providers is None:
         return None
 
     return [provider.provide() for provider in providers]
+
 
 def _auto_manage_session(f):
     @wraps(f)
@@ -55,7 +59,8 @@ def _auto_manage_session(f):
             self.safe_login_if_not()
 
             result: BaseResult = f(self, *args, **kwargs)
-            invalid_token_error = next(result.get_errors(include_codes=[FMErrorEnum.INVALID_FILEMAKER_DATA_API_TOKEN]), None)
+            invalid_token_error = next(
+                result.get_errors(include_codes=[FMErrorEnum.INVALID_FILEMAKER_DATA_API_TOKEN]), None)
 
             # If not invalid token error, return result immediately
             if not invalid_token_error:
@@ -136,7 +141,6 @@ class FMClient(object):
                     if exception_if_too_fast:
                         self._raise_exception_if_too_fast()
                     self.login()
-
 
     def logout(self, api_version: Optional[str] = None) -> Optional[LogoutResult]:
         """
@@ -417,7 +421,6 @@ class FMClient(object):
 
         return GetScriptsResult(self.call_filemaker(method='GET', path=path))
 
-
     def raw_login_username_password(self, username: str,
                                     password: str,
                                     data_sources: Optional[List[DataSourceProvider]] = None,
@@ -479,7 +482,8 @@ class FMClient(object):
             'Authorization': f'FMID {fmid_token}'
         }
 
-        return LoginResult(self.call_filemaker(method='POST', path=path, data=data, headers=headers, use_session_token=False))
+        return LoginResult(
+            self.call_filemaker(method='POST', path=path, data=data, headers=headers, use_session_token=False))
 
     def _get_api_version(self, api_version: Optional[str] = None) -> str:
         return api_version if api_version else self.api_version

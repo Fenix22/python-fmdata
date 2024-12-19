@@ -4,10 +4,10 @@ import itertools
 from dataclasses import dataclass
 from typing import Optional, Iterator
 
-from statelessfm.fmclient.cache_iterator import CacheIterator
-from statelessfm.fmclient.const import FMErrorEnum
-from statelessfm.fmclient.fmclient import FMClient
-from statelessfm.fmclient.results import Data, CommonSearchRecordsResult, EditRecordResult, DeleteRecordResult
+from fmdata.cache_iterator import CacheIterator
+from fmdata.const import FMErrorEnum
+from fmdata.fmclient import FMClient
+from fmdata.results import Data, CommonSearchRecordsResult, EditRecordResult, DeleteRecordResult
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,7 @@ class RepositoryRecord(Data):
             record_id=record_id,
             **kwargs)
 
+
 @dataclass(frozen=True)
 class RepositoryGetRecordsResponse:
     repository: FMRepository
@@ -46,12 +47,12 @@ PageIterator = Iterator[Page]
 
 
 def page_generator(
-    repository: FMRepository,
-    fn_get_response: callable = None,
-    offset: int = 1,
-    page_size: Optional[int] = 100,
-    limit: Optional[int] = 200,
-    **kwargs
+        repository: FMRepository,
+        fn_get_response: callable = None,
+        offset: int = 1,
+        page_size: Optional[int] = 100,
+        limit: Optional[int] = 200,
+        **kwargs
 ) -> Iterator[Page]:
     if offset < 1:
         raise ValueError("offset must be greater or equal to 1")
@@ -133,7 +134,6 @@ class FoundSet(CacheIterator[RepositoryRecord]):
         super().__init__(iterator)
 
 
-
 class RepositoryCommonSearchRecordResult:
     result: CommonSearchRecordsResult = None
     pages: CacheIterator[Page] = None
@@ -149,12 +149,12 @@ class FMRepository:
     layout: str = None
 
     def _common_search_records(
-        self,
-        fn_get_response: callable,
-        offset: int = 1,
-        page_size: Optional[int] = 100,
-        limit: Optional[int] = 200,
-        **kwargs
+            self,
+            fn_get_response: callable,
+            offset: int = 1,
+            page_size: Optional[int] = 100,
+            limit: Optional[int] = 200,
+            **kwargs
     ) -> RepositoryCommonSearchRecordResult:
         page_iterator = page_generator(
             repository=self,
@@ -224,5 +224,3 @@ class FMRepository:
             layout=self.layout,
             **kwargs
         )
-
-

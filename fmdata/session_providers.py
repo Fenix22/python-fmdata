@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
-import pycognito
 
-from statelessfm.fmclient.fmclient import FMClient, SessionProvider, DataSourceProvider
-from statelessfm.fmclient.results import LoginResult
+from fmdata.fmclient import FMClient, SessionProvider, DataSourceProvider
+from fmdata.results import LoginResult
 
 
 def get_token_or_raise_exception(result: LoginResult) -> str:
@@ -97,6 +96,7 @@ class ClarisCloudSessionProvider(SessionProvider):
     def _get_cognito_token(self) -> str:
         """Use Pycognito library to authenticate with Amazon Cognito and retrieve FMID token."""
 
+        import pycognito
         user = pycognito.Cognito(user_pool_id=self.cognito_userpool_id,
                                  client_id=self.cognito_client_id,
                                  username=self.claris_id_name)

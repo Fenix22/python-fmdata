@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any, Iterator, Iterable
 
-from statelessfm.fmclient.const import FMErrorEnum
+from fmdata.const import FMErrorEnum
 
 
 @dataclass(frozen=True)
