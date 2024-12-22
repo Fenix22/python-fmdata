@@ -155,7 +155,7 @@ class FMClient:
             token=self._token
         )
 
-        return LogoutResult(original_response=self.call_filemaker(method='DELETE', path=path, use_session_token=False))
+        return LogoutResult(raw_content=self.call_filemaker(method='DELETE', path=path, use_session_token=False))
 
     @_auto_manage_session
     def create_record(self,
@@ -258,7 +258,7 @@ class FMClient:
             **_scripts_to_dict(scripts),
         })
 
-        return GetRecordResult(original_response=self.call_filemaker(method='GET', path=path, params=params),
+        return GetRecordResult(raw_content=self.call_filemaker(method='GET', path=path, params=params),
                                client=self, layout=layout)
 
     @_auto_manage_session
@@ -329,7 +329,7 @@ class FMClient:
             **_scripts_to_dict(scripts),
         })
 
-        return GetRecordsResult(original_response=self.call_filemaker(method='GET', path=path, params=params),
+        return GetRecordsResult(raw_content=self.call_filemaker(method='GET', path=path, params=params),
                                 client=self, layout=layout)
 
     def get_records_paginated(self,
@@ -381,7 +381,7 @@ class FMClient:
             **_scripts_to_dict(scripts),
         })
 
-        return FindResult(original_response=self.call_filemaker(method='POST', path=path, data=data), client=self,
+        return FindResult(raw_content=self.call_filemaker(method='POST', path=path, data=data), client=self,
                           layout=layout)
 
     def find_paginated(self,
@@ -635,7 +635,7 @@ def page_generator(
             **kwargs
         )
 
-        result = CommonSearchRecordsResult(original_response=client_response.original_response, client=client,
+        result = CommonSearchRecordsResult(raw_content=client_response.raw_content, client=client,
                                            layout=layout)
         has_messages = any(result.messages_iterator)
         if has_messages:

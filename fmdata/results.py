@@ -14,7 +14,7 @@ def optional_list(iterator: Optional[Iterator]) -> Optional[List]:
 
 @dataclass(frozen=True)
 class BaseProxy:
-    original_response: Dict[str, Any]
+    raw_content: Dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -22,11 +22,11 @@ class Message(BaseProxy):
 
     @property
     def code(self) -> Optional[int]:
-        return self.original_response.get('code', None)
+        return self.raw_content.get('code', None)
 
     @property
     def message(self) -> Optional[str]:
-        return self.original_response.get('message', None)
+        return self.raw_content.get('message', None)
 
 
 def _get_int(input: FMErrorEnum | int):
@@ -44,7 +44,7 @@ class BaseResult(BaseProxy):
 
     @property
     def messages_iterator(self) -> Iterator[Message]:
-        return (Message(msg) for msg in self.original_response['messages'])
+        return (Message(msg) for msg in self.raw_content['messages'])
 
     def get_errors(self,
                    include_codes: Optional[List[FMErrorEnum | int]] = None,
@@ -89,27 +89,27 @@ class ScriptResponse(BaseProxy):
 
     @property
     def after_script_result(self) -> Optional[str]:
-        return self.original_response.get('scriptResult', None)
+        return self.raw_content.get('scriptResult', None)
 
     @property
     def after_script_error(self) -> Optional[str]:
-        return self.original_response.get('scriptError', None)
+        return self.raw_content.get('scriptError', None)
 
     @property
     def prerequest_script_result(self) -> Optional[str]:
-        return self.original_response.get('scriptResult.prerequest', None)
+        return self.raw_content.get('scriptResult.prerequest', None)
 
     @property
     def prerequest_script_error(self) -> Optional[str]:
-        return self.original_response.get('scriptError.prerequest', None)
+        return self.raw_content.get('scriptError.prerequest', None)
 
     @property
     def presort_script_result(self) -> Optional[str]:
-        return self.original_response.get('scriptResult.presort', None)
+        return self.raw_content.get('scriptResult.presort', None)
 
     @property
     def presort_script_error(self) -> Optional[str]:
-        return self.original_response.get('scriptError.presort', None)
+        return self.raw_content.get('scriptError.presort', None)
 
 
 @dataclass(frozen=True)
@@ -117,7 +117,7 @@ class ScriptResult(BaseResult):
 
     @property
     def response(self):
-        return ScriptResponse(self.original_response['response'])
+        return ScriptResponse(self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -125,23 +125,23 @@ class PortalDataInfo(BaseProxy):
 
     @property
     def database(self) -> Optional[str]:
-        return self.original_response.get('database', None)
+        return self.raw_content.get('database', None)
 
     @property
     def table(self) -> Optional[str]:
-        return self.original_response.get('table', None)
+        return self.raw_content.get('table', None)
 
     @property
     def found_count(self) -> Optional[int]:
-        return self.original_response.get('foundCount', None)
+        return self.raw_content.get('foundCount', None)
 
     @property
     def returned_count(self) -> Optional[int]:
-        return self.original_response.get('returnedCount', None)
+        return self.raw_content.get('returnedCount', None)
 
     @property
     def portal_object_name(self) -> Optional[str]:
-        return self.original_response.get('portalObjectName', None)
+        return self.raw_content.get('portalObjectName', None)
 
 
 @dataclass(frozen=True)
@@ -154,17 +154,17 @@ class PortalData(BaseProxy):
         prefix = f"{self.table_name}::"
         return {
             key[len(prefix):]: value
-            for key, value in self.original_response.items()
+            for key, value in self.raw_content.items()
             if key.startswith(prefix)
         }
 
     @property
     def record_id(self) -> Optional[str]:
-        return self.original_response.get('recordId', None)
+        return self.raw_content.get('recordId', None)
 
     @property
     def mod_id(self) -> Optional[str]:
-        return self.original_response.get('modId', None)
+        return self.raw_content.get('modId', None)
 
 
 @dataclass(frozen=True)
@@ -172,27 +172,27 @@ class DataInfo(BaseProxy):
 
     @property
     def database(self) -> Optional[str]:
-        return self.original_response.get('database', None)
+        return self.raw_content.get('database', None)
 
     @property
     def layout(self) -> Optional[str]:
-        return self.original_response.get('layout', None)
+        return self.raw_content.get('layout', None)
 
     @property
     def table(self) -> Optional[str]:
-        return self.original_response.get('table', None)
+        return self.raw_content.get('table', None)
 
     @property
     def total_record_count(self) -> Optional[str]:
-        return self.original_response.get('totalRecordCount', None)
+        return self.raw_content.get('totalRecordCount', None)
 
     @property
     def found_count(self) -> Optional[int]:
-        return self.original_response.get('foundCount', None)
+        return self.raw_content.get('foundCount', None)
 
     @property
     def returned_count(self) -> Optional[int]:
-        return self.original_response.get('returnedCount', None)
+        return self.raw_content.get('returnedCount', None)
 
 
 @dataclass(frozen=True)
@@ -200,15 +200,15 @@ class Data(BaseProxy):
 
     @property
     def field_data(self) -> Dict[str, Any]:
-        return self.original_response['fieldData']
+        return self.raw_content['fieldData']
 
     @property
     def record_id(self) -> str:
-        return self.original_response.get('recordId')
+        return self.raw_content.get('recordId')
 
     @property
     def mod_id(self) -> Optional[str]:
-        return self.original_response.get('modId', None)
+        return self.raw_content.get('modId', None)
 
     @cached_property
     def portal_data_info(self) -> Optional[List[PortalDataInfo]]:
@@ -216,15 +216,15 @@ class Data(BaseProxy):
 
     @property
     def portal_data_info_iterator(self) -> Optional[Iterator[PortalDataInfo]]:
-        portal_data_info_list: Optional[List[Dict[str, Any]]] = self.original_response.get('portalDataInfo', None)
+        portal_data_info_list: Optional[List[Dict[str, Any]]] = self.raw_content.get('portalDataInfo', None)
         return (PortalDataInfo(portal_data_info) for portal_data_info in
                 portal_data_info_list) if portal_data_info_list is not None else None
 
     @cached_property
     def portal_data(self) -> Optional[Dict[str, PortalData]]:
-        portal_data: Optional[Dict[str, Any]] = self.original_response.get('portalData', None)
+        portal_data: Optional[Dict[str, Any]] = self.raw_content.get('portalData', None)
         return {
-            key: PortalData(table_name=key, original_response=value)
+            key: PortalData(table_name=key, raw_content=value)
             for key, value in portal_data.items()
         } if portal_data is not None else None
 
@@ -234,17 +234,17 @@ class CommonSearchRecordsResponseField(ScriptResponse):
 
     @property
     def data_info(self) -> Optional[DataInfo]:
-        data_info: Optional[Dict[str, Any]] = self.original_response.get('dataInfo', None)
+        data_info: Optional[Dict[str, Any]] = self.raw_content.get('dataInfo', None)
         return DataInfo(data_info) if data_info is not None else None
 
     @cached_property
     def data(self) -> Optional[List[Data]]:
-        content: Optional[Iterable] = self.original_response.get('data', None)
+        content: Optional[Iterable] = self.raw_content.get('data', None)
         return [Data(record) for record in content] if content is not None else None
 
     @property
     def data_iterator(self) -> Optional[Iterator[Data]]:
-        content: Optional[Iterable] = self.original_response.get('data', None)
+        content: Optional[Iterable] = self.raw_content.get('data', None)
         return (Data(record) for record in content) if content is not None else None
 
 
@@ -255,7 +255,7 @@ class CommonSearchRecordsResult(BaseResult):
 
     @property
     def response(self):
-        return CommonSearchRecordsResponseField(self.original_response['response'])
+        return CommonSearchRecordsResponseField(self.raw_content['response'])
 
     @cached_property
     def found_set(self):
@@ -302,11 +302,11 @@ class CreateRecordResponse(BaseProxy):
 
     @property
     def mod_id(self) -> str:
-        return self.original_response['modId']
+        return self.raw_content['modId']
 
     @property
     def record_id(self) -> str:
-        return self.original_response['recordId']
+        return self.raw_content['recordId']
 
 
 @dataclass(frozen=True)
@@ -314,7 +314,7 @@ class CreateRecordResult(BaseResult):
 
     @property
     def response(self):
-        return CreateRecordResponse(original_response=self.original_response['response'])
+        return CreateRecordResponse(raw_content=self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -322,7 +322,7 @@ class EditRecordResponse(BaseProxy):
 
     @property
     def mod_id(self) -> str:
-        return self.original_response['modId']
+        return self.raw_content['modId']
 
 
 @dataclass(frozen=True)
@@ -330,7 +330,7 @@ class EditRecordResult(BaseResult):
 
     @property
     def response(self):
-        return EditRecordResponse(original_response=self.original_response['response'])
+        return EditRecordResponse(raw_content=self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -343,7 +343,7 @@ class LoginResponse(BaseProxy):
 
     @property
     def token(self) -> str:
-        return self.original_response['token']
+        return self.raw_content['token']
 
 
 @dataclass(frozen=True)
@@ -351,7 +351,7 @@ class LoginResult(BaseResult):
 
     @property
     def response(self):
-        return LoginResponse(self.original_response['response'])
+        return LoginResponse(self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -369,27 +369,27 @@ class GetProductInfoResponse(BaseProxy):
 
     @property
     def name(self) -> Optional[str]:
-        return self.original_response.get('name', None)
+        return self.raw_content.get('name', None)
 
     @property
     def build_date(self) -> Optional[str]:
-        return self.original_response.get('buildDate', None)
+        return self.raw_content.get('buildDate', None)
 
     @property
     def version(self) -> Optional[str]:
-        return self.original_response.get('version', None)
+        return self.raw_content.get('version', None)
 
     @property
     def date_format(self) -> Optional[str]:
-        return self.original_response.get('dateFormat', None)
+        return self.raw_content.get('dateFormat', None)
 
     @property
     def time_format(self) -> Optional[str]:
-        return self.original_response.get('timeFormat', None)
+        return self.raw_content.get('timeFormat', None)
 
     @property
     def time_stamp_format(self) -> Optional[str]:
-        return self.original_response.get('timeStampFormat', None)
+        return self.raw_content.get('timeStampFormat', None)
 
 
 @dataclass(frozen=True)
@@ -397,7 +397,7 @@ class GetProductInfoResult(BaseResult):
 
     @property
     def response(self):
-        return GetProductInfoResponse(self.original_response['response'])
+        return GetProductInfoResponse(self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -405,7 +405,7 @@ class Database(BaseProxy):
 
     @property
     def name(self) -> Optional[str]:
-        return self.original_response.get('name', None)
+        return self.raw_content.get('name', None)
 
 
 @dataclass(frozen=True)
@@ -417,7 +417,7 @@ class GetDatabasesResponse(BaseProxy):
 
     @property
     def databases_iterator(self) -> Optional[Iterator[Database]]:
-        content: Optional[Iterable] = self.original_response.get('databases', None)
+        content: Optional[Iterable] = self.raw_content.get('databases', None)
         return (Database(database) for database in content) if content is not None else None
 
 
@@ -426,7 +426,7 @@ class GetDatabasesResult(BaseResult):
 
     @property
     def response(self):
-        return GetDatabasesResponse(self.original_response['response'])
+        return GetDatabasesResponse(self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -434,11 +434,11 @@ class GetLayoutsLayout(BaseProxy):
 
     @property
     def name(self) -> Optional[str]:
-        return self.original_response.get('name', None)
+        return self.raw_content.get('name', None)
 
     @property
     def is_folder(self) -> Optional[bool]:
-        return self.original_response.get('isFolder', None)
+        return self.raw_content.get('isFolder', None)
 
     @cached_property
     def folder_layout_names(self) -> Optional[List[GetLayoutsLayout]]:
@@ -446,7 +446,7 @@ class GetLayoutsLayout(BaseProxy):
 
     @property
     def folder_layout_names_iterator(self) -> Optional[Iterator[GetLayoutsLayout]]:
-        content: Optional[Iterable] = self.original_response.get('folderLayoutNames', None)
+        content: Optional[Iterable] = self.raw_content.get('folderLayoutNames', None)
         return (GetLayoutsLayout(entry) for entry in content) if content is not None else None
 
 
@@ -459,7 +459,7 @@ class GetLayoutsResponse(BaseProxy):
 
     @property
     def layouts_iterator(self) -> Optional[Iterator[GetLayoutsLayout]]:
-        content: Optional[Iterable] = self.original_response.get('layouts', None)
+        content: Optional[Iterable] = self.raw_content.get('layouts', None)
         return (GetLayoutsLayout(entry) for entry in content) if content is not None else None
 
 
@@ -468,7 +468,7 @@ class GetLayoutsResult(BaseResult):
 
     @property
     def response(self):
-        return GetLayoutsResponse(self.original_response['response'])
+        return GetLayoutsResponse(self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -476,59 +476,59 @@ class FieldMetaData(BaseProxy):
 
     @property
     def name(self) -> Optional[str]:
-        return self.original_response.get('name', None)
+        return self.raw_content.get('name', None)
 
     @property
     def type(self) -> Optional[str]:
-        return self.original_response.get('type', None)
+        return self.raw_content.get('type', None)
 
     @property
     def display_type(self) -> Optional[str]:
-        return self.original_response.get('displayType', None)
+        return self.raw_content.get('displayType', None)
 
     @property
     def result(self) -> Optional[str]:
-        return self.original_response.get('result', None)
+        return self.raw_content.get('result', None)
 
     @property
     def global_(self) -> Optional[bool]:
-        return self.original_response.get('global', None)
+        return self.raw_content.get('global', None)
 
     @property
     def auto_enter(self) -> Optional[bool]:
-        return self.original_response.get('autoEnter', None)
+        return self.raw_content.get('autoEnter', None)
 
     @property
     def four_digit_year(self) -> Optional[bool]:
-        return self.original_response.get('fourDigitYear', None)
+        return self.raw_content.get('fourDigitYear', None)
 
     @property
     def max_repeat(self) -> Optional[int]:
-        return self.original_response.get('maxRepeat', None)
+        return self.raw_content.get('maxRepeat', None)
 
     @property
     def max_characters(self) -> Optional[int]:
-        return self.original_response.get('maxCharacters', None)
+        return self.raw_content.get('maxCharacters', None)
 
     @property
     def not_empty(self) -> Optional[bool]:
-        return self.original_response.get('notEmpty', None)
+        return self.raw_content.get('notEmpty', None)
 
     @property
     def numeric(self) -> Optional[bool]:
-        return self.original_response.get('numeric', None)
+        return self.raw_content.get('numeric', None)
 
     @property
     def time_of_day(self) -> Optional[bool]:
-        return self.original_response.get('timeOfDay', None)
+        return self.raw_content.get('timeOfDay', None)
 
     @property
     def repetition_start(self) -> Optional[int]:
-        return self.original_response.get('repetitionStart', None)
+        return self.raw_content.get('repetitionStart', None)
 
     @property
     def repetition_end(self) -> Optional[int]:
-        return self.original_response.get('repetitionEnd', None)
+        return self.raw_content.get('repetitionEnd', None)
 
 
 @dataclass(frozen=True)
@@ -545,12 +545,12 @@ class GetLayoutResponse(BaseProxy):
 
     @property
     def field_meta_data_iterator(self) -> Optional[Iterator[FieldMetaData]]:
-        content: Optional[Iterable] = self.original_response['fieldMetaData']
+        content: Optional[Iterable] = self.raw_content['fieldMetaData']
         return (FieldMetaData(entry) for entry in content) if content is not None else None
 
     @cached_property
     def portal_meta_data(self) -> Optional[Dict[str, List[PortalFieldMetaData]]]:
-        content: Optional[Dict[str, Any]] = self.original_response.get('portalMetaData', None)
+        content: Optional[Dict[str, Any]] = self.raw_content.get('portalMetaData', None)
         return {
             key: (PortalFieldMetaData(entry) for entry in value_list)
             for key, value_list in content.items()
@@ -558,7 +558,7 @@ class GetLayoutResponse(BaseProxy):
 
     @property
     def portal_meta_data_iterator(self) -> Optional[Dict[str, Iterator[PortalFieldMetaData]]]:
-        content: Optional[Dict[str, Any]] = self.original_response.get('portalMetaData', None)
+        content: Optional[Dict[str, Any]] = self.raw_content.get('portalMetaData', None)
         return {
             key: [PortalFieldMetaData(entry) for entry in value_list]
             for key, value_list in content.items()
@@ -570,7 +570,7 @@ class GetLayoutResult(BaseResult):
 
     @property
     def response(self):
-        return GetLayoutResponse(self.original_response['response'])
+        return GetLayoutResponse(self.raw_content['response'])
 
 
 @dataclass(frozen=True)
@@ -578,11 +578,11 @@ class GetScriptsScript(BaseProxy):
 
     @property
     def name(self) -> Optional[str]:
-        return self.original_response.get('name', None)
+        return self.raw_content.get('name', None)
 
     @property
     def is_folder(self) -> Optional[bool]:
-        return self.original_response.get('isFolder', None)
+        return self.raw_content.get('isFolder', None)
 
     @cached_property
     def folder_script_names(self) -> Optional[List[GetScriptsScript]]:
@@ -590,7 +590,7 @@ class GetScriptsScript(BaseProxy):
 
     @property
     def folder_script_names_iterator(self) -> Optional[Iterator[GetScriptsScript]]:
-        content: Optional[Iterable] = self.original_response.get('folderScriptNames', None)
+        content: Optional[Iterable] = self.raw_content.get('folderScriptNames', None)
         return (GetScriptsScript(entry) for entry in content) if content is not None else None
 
 
@@ -599,7 +599,7 @@ class GetScriptsResponse(BaseProxy):
 
     @property
     def scripts(self) -> Optional[Iterator[GetScriptsScript]]:
-        content: Optional[Iterable] = self.original_response.get('scripts', None)
+        content: Optional[Iterable] = self.raw_content.get('scripts', None)
         return (GetScriptsScript(entry) for entry in content) if content is not None else None
 
 
@@ -608,7 +608,7 @@ class GetScriptsResult(BaseResult):
 
     @property
     def response(self):
-        return GetScriptsResponse(self.original_response['response'])
+        return GetScriptsResponse(self.raw_content['response'])
 
 
 class FileMakerErrorException(Exception):
@@ -667,7 +667,7 @@ def records_iterator_from_common_search_result(
 ) -> Iterator[RepositoryRecord]:
     for data_entry in result.response.data:
         yield RepositoryRecord(
-            original_response=data_entry.original_response,
+            raw_content=data_entry.raw_content,
             client=result.client,
             layout=result.layout
         )
