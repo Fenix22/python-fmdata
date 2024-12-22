@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import List, Optional, Dict, Any, Iterator, Iterable
 
+from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum
+
+
+def optional_list(iterator: Optional[Iterator]) -> Optional[List]:
+    return list(iterator) if iterator is not None else None
 
 
 @dataclass(frozen=True)
@@ -23,30 +29,51 @@ class Message(BaseProxy):
         return self.original_response.get('message', None)
 
 
+def _get_int(input: FMErrorEnum | int):
+    if isinstance(input, FMErrorEnum):
+        return input.value
+    return input
+
+
 @dataclass(frozen=True)
 class BaseResult(BaseProxy):
 
+    @cached_property
+    def messages(self) -> List[Message]:
+        return list(self.messages_iterator)
+
     @property
-    def messages(self) -> Iterator[Message]:
+    def messages_iterator(self) -> Iterator[Message]:
         return (Message(msg) for msg in self.original_response['messages'])
 
     def get_errors(self,
                    include_codes: Optional[List[FMErrorEnum | int]] = None,
                    exclude_codes: Optional[List[FMErrorEnum | int]] = None
-                   ) -> Iterator[Message]:
+                   ) -> List[Message]:
+
+        return list(self.get_errors_iterator(include_codes=include_codes, exclude_codes=exclude_codes))
+
+    def get_errors_iterator(self,
+                            include_codes: Optional[List[FMErrorEnum | int]] = None,
+                            exclude_codes: Optional[List[FMErrorEnum | int]] = None
+                            ) -> Iterator[Message]:
 
         if exclude_codes is None:
             exclude_codes = [FMErrorEnum.NO_ERROR]
 
+        int_include_codes = [_get_int(code) for code in include_codes] if include_codes is not None else None
+        int_exclude_codes = [_get_int(code) for code in exclude_codes] if exclude_codes is not None else None
+
         return (msg for msg in self.messages
-                if int(msg.code) not in exclude_codes and (include_codes is None or (int(msg.code) in include_codes)))
+                if int(msg.code) not in int_exclude_codes and (
+                            int_include_codes is None or (int(msg.code) in int_include_codes)))
 
     def raise_exception_if_has_error(self,
                                      include_codes: Optional[List[FMErrorEnum | int]] = None,
                                      exclude_codes: Optional[List[FMErrorEnum | int]] = None
                                      ) -> None:
 
-        error = next(self.get_errors(include_codes=include_codes, exclude_codes=exclude_codes), None)
+        error = next(self.get_errors_iterator(include_codes=include_codes, exclude_codes=exclude_codes), None)
 
         if error is not None:
             raise FileMakerErrorException(code=error.code, message=error.message)
@@ -122,9 +149,8 @@ class PortalData(BaseProxy):
     table_name: str
 
     # TODO check
-
-    @property
-    def extracted_field_data(self) -> Dict[str, Any]:
+    @cached_property
+    def field_data(self) -> Dict[str, Any]:
         prefix = f"{self.table_name}::"
         return {
             key[len(prefix):]: value
@@ -177,20 +203,24 @@ class Data(BaseProxy):
         return self.original_response['fieldData']
 
     @property
-    def record_id(self) -> Optional[str]:
-        return self.original_response.get('recordId', None)
+    def record_id(self) -> str:
+        return self.original_response.get('recordId')
 
     @property
     def mod_id(self) -> Optional[str]:
         return self.original_response.get('modId', None)
 
-    @property
+    @cached_property
     def portal_data_info(self) -> Optional[List[PortalDataInfo]]:
-        portal_data_info_list: Optional[List[Dict[str, Any]]] = self.original_response.get('portalDataInfo', None)
-        return [PortalDataInfo(portal_data_info) for portal_data_info in
-                portal_data_info_list] if portal_data_info_list is not None else None
+        return optional_list(self.portal_data_info_iterator)
 
     @property
+    def portal_data_info_iterator(self) -> Optional[Iterator[PortalDataInfo]]:
+        portal_data_info_list: Optional[List[Dict[str, Any]]] = self.original_response.get('portalDataInfo', None)
+        return (PortalDataInfo(portal_data_info) for portal_data_info in
+                portal_data_info_list) if portal_data_info_list is not None else None
+
+    @cached_property
     def portal_data(self) -> Optional[Dict[str, PortalData]]:
         portal_data: Optional[Dict[str, Any]] = self.original_response.get('portalData', None)
         return {
@@ -207,17 +237,32 @@ class CommonSearchRecordsResponseField(ScriptResponse):
         data_info: Optional[Dict[str, Any]] = self.original_response.get('dataInfo', None)
         return DataInfo(data_info) if data_info is not None else None
 
+    @cached_property
+    def data(self) -> Optional[List[Data]]:
+        content: Optional[Iterable] = self.original_response.get('data', None)
+        return [Data(record) for record in content] if content is not None else None
+
     @property
-    def data(self) -> List[Data]:
-        return [Data(record) for record in self.original_response['data']]
+    def data_iterator(self) -> Optional[Iterator[Data]]:
+        content: Optional[Iterable] = self.original_response.get('data', None)
+        return (Data(record) for record in content) if content is not None else None
 
 
 @dataclass(frozen=True)
 class CommonSearchRecordsResult(BaseResult):
+    layout: str
+    client: object
 
     @property
     def response(self):
         return CommonSearchRecordsResponseField(self.original_response['response'])
+
+    @cached_property
+    def found_set(self):
+        if self.response.data_iterator is None:
+            return FoundSet(iter([]))
+
+        return FoundSet(records_iterator_from_common_search_result(self))
 
 
 @dataclass(frozen=True)
@@ -232,6 +277,23 @@ class GetRecordsResult(CommonSearchRecordsResult):
 
 @dataclass(frozen=True)
 class FindResult(CommonSearchRecordsResult):
+    pass
+
+
+@dataclass(frozen=True)
+class PaginatedRecordResult:
+    pages: CacheIterator[Page]
+
+    @cached_property
+    def found_set(self):
+        return FoundSet(records_iterator_from_page_iterator(self.pages.__iter__()).__iter__())
+
+
+class GetRecordsPaginatedResult(PaginatedRecordResult):
+    pass
+
+
+class FindPaginatedResult(PaginatedRecordResult):
     pass
 
 
@@ -349,9 +411,14 @@ class Database(BaseProxy):
 @dataclass(frozen=True)
 class GetDatabasesResponse(BaseProxy):
 
+    @cached_property
+    def databases(self) -> Optional[List[Database]]:
+        return optional_list(self.databases_iterator)
+
     @property
-    def databases(self) -> Iterator[Database]:
-        return (Database(database) for database in self.original_response['databases'])
+    def databases_iterator(self) -> Optional[Iterator[Database]]:
+        content: Optional[Iterable] = self.original_response.get('databases', None)
+        return (Database(database) for database in content) if content is not None else None
 
 
 @dataclass(frozen=True)
@@ -373,8 +440,12 @@ class GetLayoutsLayout(BaseProxy):
     def is_folder(self) -> Optional[bool]:
         return self.original_response.get('isFolder', None)
 
+    @cached_property
+    def folder_layout_names(self) -> Optional[List[GetLayoutsLayout]]:
+        return optional_list(self.folder_layout_names_iterator)
+
     @property
-    def folder_layout_names(self) -> Optional[Iterator[GetLayoutsLayout]]:
+    def folder_layout_names_iterator(self) -> Optional[Iterator[GetLayoutsLayout]]:
         content: Optional[Iterable] = self.original_response.get('folderLayoutNames', None)
         return (GetLayoutsLayout(entry) for entry in content) if content is not None else None
 
@@ -382,8 +453,12 @@ class GetLayoutsLayout(BaseProxy):
 @dataclass(frozen=True)
 class GetLayoutsResponse(BaseProxy):
 
+    @cached_property
+    def layouts(self) -> Optional[List[GetLayoutsLayout]]:
+        return optional_list(self.layouts_iterator)
+
     @property
-    def layouts(self) -> Optional[Iterator[GetLayoutsLayout]]:
+    def layouts_iterator(self) -> Optional[Iterator[GetLayoutsLayout]]:
         content: Optional[Iterable] = self.original_response.get('layouts', None)
         return (GetLayoutsLayout(entry) for entry in content) if content is not None else None
 
@@ -457,78 +532,35 @@ class FieldMetaData(BaseProxy):
 
 
 @dataclass(frozen=True)
-class PortalMetaDataItem(BaseProxy):
-
-    @property
-    def name(self) -> Optional[str]:
-        return self.original_response.get('name', None)
-
-    @property
-    def type(self) -> Optional[str]:
-        return self.original_response.get('type', None)
-
-    @property
-    def display_type(self) -> Optional[str]:
-        return self.original_response.get('displayType', None)
-
-    @property
-    def result(self) -> Optional[str]:
-        return self.original_response.get('result', None)
-
-    @property
-    def global_(self) -> Optional[bool]:
-        return self.original_response.get('global', None)
-
-    @property
-    def auto_enter(self) -> Optional[bool]:
-        return self.original_response.get('autoEnter', None)
-
-    @property
-    def four_digit_year(self) -> Optional[bool]:
-        return self.original_response.get('fourDigitYear', None)
-
-    @property
-    def max_repeat(self) -> Optional[int]:
-        return self.original_response.get('maxRepeat', None)
-
-    @property
-    def max_characters(self) -> Optional[int]:
-        return self.original_response.get('maxCharacters', None)
-
-    @property
-    def not_empty(self) -> Optional[bool]:
-        return self.original_response.get('notEmpty', None)
-
-    @property
-    def numeric(self) -> Optional[bool]:
-        return self.original_response.get('numeric', None)
-
-    @property
-    def time_of_day(self) -> Optional[bool]:
-        return self.original_response.get('timeOfDay', None)
-
-    @property
-    def repetition_start(self) -> Optional[int]:
-        return self.original_response.get('repetitionStart', None)
-
-    @property
-    def repetition_end(self) -> Optional[int]:
-        return self.original_response.get('repetitionEnd', None)
+class PortalFieldMetaData(FieldMetaData):
+    pass
 
 
 @dataclass(frozen=True)
 class GetLayoutResponse(BaseProxy):
 
+    @cached_property
+    def field_meta_data(self) -> Optional[List[FieldMetaData]]:
+        return optional_list(self.field_meta_data_iterator)
+
     @property
-    def field_meta_data(self) -> Optional[Iterator[FieldMetaData]]:
+    def field_meta_data_iterator(self) -> Optional[Iterator[FieldMetaData]]:
         content: Optional[Iterable] = self.original_response['fieldMetaData']
         return (FieldMetaData(entry) for entry in content) if content is not None else None
 
-    @property
-    def portal_meta_data(self) -> Optional[Dict[str, Iterator[PortalMetaDataItem]]]:
-        content: Optional[dict[str, Any]] = self.original_response.get('portalMetaData', None)
+    @cached_property
+    def portal_meta_data(self) -> Optional[Dict[str, List[PortalFieldMetaData]]]:
+        content: Optional[Dict[str, Any]] = self.original_response.get('portalMetaData', None)
         return {
-            key: (PortalMetaDataItem(entry) for entry in value_list)
+            key: (PortalFieldMetaData(entry) for entry in value_list)
+            for key, value_list in content.items()
+        } if content is not None else None
+
+    @property
+    def portal_meta_data_iterator(self) -> Optional[Dict[str, Iterator[PortalFieldMetaData]]]:
+        content: Optional[Dict[str, Any]] = self.original_response.get('portalMetaData', None)
+        return {
+            key: [PortalFieldMetaData(entry) for entry in value_list]
             for key, value_list in content.items()
         } if content is not None else None
 
@@ -552,8 +584,12 @@ class GetScriptsScript(BaseProxy):
     def is_folder(self) -> Optional[bool]:
         return self.original_response.get('isFolder', None)
 
+    @cached_property
+    def folder_script_names(self) -> Optional[List[GetScriptsScript]]:
+        return optional_list(self.folder_script_names_iterator)
+
     @property
-    def folder_script_names(self) -> Optional[Iterator[GetScriptsScript]]:
+    def folder_script_names_iterator(self) -> Optional[Iterator[GetScriptsScript]]:
         content: Optional[Iterable] = self.original_response.get('folderScriptNames', None)
         return (GetScriptsScript(entry) for entry in content) if content is not None else None
 
@@ -583,3 +619,62 @@ class FileMakerErrorException(Exception):
     @staticmethod
     def from_response_message(error: Message) -> FileMakerErrorException:
         return FileMakerErrorException(code=error.code, message=error.message)
+
+
+@dataclass(frozen=True)
+class RepositoryRecord(Data):
+    client: object
+    layout: str
+
+    def edit_record(self, check_mod_id: bool, **kwargs):
+        mod_id = self.mod_id if check_mod_id else None
+
+        return self.client.edit_record(
+            layout=self.layout,
+            record_id=self.record_id,
+            mod_id=mod_id,
+            **kwargs
+        )
+
+    def delete_record(self, **kwargs):
+        return self.client.delete_record(
+            layout=self.layout,
+            record_id=self.record_id,
+            **kwargs)
+
+
+class FoundSet(CacheIterator[RepositoryRecord]):
+    def __init__(self, iterator: Iterator[RepositoryRecord]):
+        super().__init__(iterator)
+
+    def __getitem__(self, index: int) -> RepositoryRecord:
+        return super().__getitem__(index)
+
+    def __iter__(self) -> Iterator[RepositoryRecord]:
+        return super().__iter__()
+
+
+@dataclass(frozen=True)
+class Page:
+    result: CommonSearchRecordsResult
+
+
+PageIterator = Iterator[Page]
+
+
+def records_iterator_from_common_search_result(
+        result: CommonSearchRecordsResult,
+) -> Iterator[RepositoryRecord]:
+    for data_entry in result.response.data:
+        yield RepositoryRecord(
+            original_response=data_entry.original_response,
+            client=result.client,
+            layout=result.layout
+        )
+
+
+def records_iterator_from_page_iterator(page_iterator: PageIterator) -> Iterator[RepositoryRecord]:
+    for page in page_iterator:
+        yield from records_iterator_from_common_search_result(
+            result=page.result,
+        )

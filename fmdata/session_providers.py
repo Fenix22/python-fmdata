@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
-
 from fmdata.fmclient import FMClient, SessionProvider, DataSourceProvider
 from fmdata.results import LoginResult
 

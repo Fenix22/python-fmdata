@@ -5,10 +5,11 @@ import logging
 import threading
 import time
 from functools import wraps
-from typing import List, Dict, Optional, Any, IO, Union
+from typing import List, Dict, Optional, Any, IO, Union, Iterator
 
 import requests
 
+from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum, APIPath
 from fmdata.inputs import ScriptsInput, OptionsInput, _scripts_to_dict, \
     _portals_to_params, _sort_to_params, _date_formats_to_value, PortalsInput, \
@@ -17,7 +18,7 @@ from fmdata.results import \
     FileMakerErrorException, LogoutResult, CreateRecordResult, EditRecordResult, DeleteRecordResult, \
     GetRecordResult, ScriptResult, BaseResult, Message, LoginResult, UploadContainerResult, GetRecordsResult, \
     FindResult, SetGlobalResult, GetProductInfoResult, GetDatabasesResult, GetLayoutsResult, GetLayoutResult, \
-    GetScriptsResult
+    GetScriptsResult, GetRecordsPaginatedResult, FindPaginatedResult, CommonSearchRecordsResult, Page
 from fmdata.utils import clean_none
 
 
@@ -28,7 +29,6 @@ class LoginRetriedTooFastException(Exception):
 
 
 class SessionProvider:
-
     def login(self, fm_client: FMClient, **kwargs) -> str:
         raise NotImplementedError
 
@@ -60,7 +60,7 @@ def _auto_manage_session(f):
 
             result: BaseResult = f(self, *args, **kwargs)
             invalid_token_error = next(
-                result.get_errors(include_codes=[FMErrorEnum.INVALID_FILEMAKER_DATA_API_TOKEN]), None)
+                result.get_errors_iterator(include_codes=[FMErrorEnum.INVALID_FILEMAKER_DATA_API_TOKEN]), None)
 
             # If not invalid token error, return result immediately
             if not invalid_token_error:
@@ -75,7 +75,7 @@ def _auto_manage_session(f):
     return wrapper
 
 
-class FMClient(object):
+class FMClient:
     def __init__(self,
                  url: str,
                  database: str,
@@ -217,7 +217,7 @@ class FMClient(object):
     @_auto_manage_session
     def delete_record(self,
                       layout: str,
-                      record_id: int,
+                      record_id: str,
                       scripts: Optional[ScriptsInput] = None,
                       api_version: Optional[str] = None
                       ) -> DeleteRecordResult:
@@ -238,7 +238,7 @@ class FMClient(object):
     @_auto_manage_session
     def get_record(self,
                    layout: str,
-                   record_id: int,
+                   record_id: str,
                    response_layout: Optional[str] = None,
                    portals: Optional[PortalsInput] = None,
                    scripts: Optional[ScriptsInput] = None,
@@ -258,7 +258,8 @@ class FMClient(object):
             **_scripts_to_dict(scripts),
         })
 
-        return GetRecordResult(self.call_filemaker(method='GET', path=path, params=params))
+        return GetRecordResult(original_response=self.call_filemaker(method='GET', path=path, params=params),
+                               client=self, layout=layout)
 
     @_auto_manage_session
     def perform_script(self,
@@ -280,7 +281,7 @@ class FMClient(object):
     @_auto_manage_session
     def upload_container(self,
                          layout: str,
-                         record_id: int,
+                         record_id: str,
                          field_name: str,
                          file: IO,
                          field_repetition: int = 1,
@@ -328,7 +329,26 @@ class FMClient(object):
             **_scripts_to_dict(scripts),
         })
 
-        return GetRecordsResult(self.call_filemaker(method='GET', path=path, params=params))
+        return GetRecordsResult(original_response=self.call_filemaker(method='GET', path=path, params=params),
+                                client=self, layout=layout)
+
+    def get_records_paginated(self,
+                              offset: int = 1,
+                              page_size: Optional[int] = 100,
+                              limit: Optional[int] = 200,
+                              **kwargs
+                              ) -> GetRecordsPaginatedResult:
+
+        return GetRecordsPaginatedResult(
+            pages=cached_page_generator(
+                client=self,
+                fn_get_response=self.get_records,
+                offset=offset,
+                page_size=page_size,
+                limit=limit,
+                **kwargs
+            )
+        )
 
     @_auto_manage_session
     def find(self,
@@ -361,7 +381,26 @@ class FMClient(object):
             **_scripts_to_dict(scripts),
         })
 
-        return FindResult(self.call_filemaker(method='POST', path=path, data=data))
+        return FindResult(original_response=self.call_filemaker(method='POST', path=path, data=data), client=self,
+                          layout=layout)
+
+    def find_paginated(self,
+                       offset: int = 1,
+                       page_size: Optional[int] = 100,
+                       limit: Optional[int] = 200,
+                       **kwargs
+                       ) -> FindPaginatedResult:
+
+        return FindPaginatedResult(
+            pages=cached_page_generator(
+                client=self,
+                fn_get_response=self.get_records,
+                offset=offset,
+                page_size=page_size,
+                limit=limit,
+                **kwargs
+            )
+        )
 
     @_auto_manage_session
     def set_globals(self, global_fields: Dict[str, Any], api_version: Optional[str] = None) -> SetGlobalResult:
@@ -537,3 +576,85 @@ class FMClient(object):
 
     def __repr__(self) -> str:
         return f"<FMClient logged_in={bool(not self._session_invalid)} token={self._token} database={self.database}>"
+
+
+def page_generator(
+        client: FMClient,
+        layout: str,
+        fn_get_response: callable = None,
+        offset: int = 1,
+        page_size: Optional[int] = 100,
+        limit: Optional[int] = 200,
+        **kwargs
+) -> Iterator[Page]:
+    if offset < 1:
+        raise ValueError("offset must be greater or equal to 1")
+
+    if page_size is None and limit is None:
+        raise ValueError("Either page_size or limit must be provided")
+
+    if page_size is not None and page_size <= 0:
+        raise ValueError("page_size must be greater than 0 or None")
+
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be greater than 0 or None")
+
+    # At this point we have at least one between "page_size" and "limit" set.
+    # We want to read all the records in range [offset, offset+limit-1]
+    # If "limit" = None it means that we want to read the full DB
+    # If the "page_size" is None it means that we want to read all the records in one go
+
+    if page_size is None or (limit is not None and limit <= page_size):
+        page_size = limit
+
+    is_final_page = False
+    records_retrieved = 0
+    page_number = 0
+
+    while is_final_page is False:
+        # Calculate the limit for the next request
+        if limit is None:
+            # If the global limit is not defined we don't know how many records we have to retrieve
+            # so we set the limit for the next request to the page_size and proceed until we get RECORD_IS_MISSING
+            limit_for_current_request = page_size
+        else:
+            remaining = limit - records_retrieved
+
+            if remaining <= page_size:
+                # If the remaining records are less than the page_size we are sure that this will be the last page
+                is_final_page = True
+
+            assert remaining > 0, "remaining <= 0! This should not happen"
+
+            limit_for_current_request = min(page_size, remaining)
+
+        client_response = fn_get_response(
+            layout=layout,
+            offset=offset,
+            limit=limit_for_current_request,
+            **kwargs
+        )
+
+        result = CommonSearchRecordsResult(original_response=client_response.original_response, client=client,
+                                           layout=layout)
+        has_messages = any(result.messages_iterator)
+        if has_messages:
+            message_is_record_is_missing = any(
+                result.get_errors_iterator(include_codes=[FMErrorEnum.RECORD_IS_MISSING]))
+            if message_is_record_is_missing:
+                is_final_page = True
+            else:
+                result.raise_exception_if_has_error()
+
+        yield Page(result=result)
+
+        # Update offset and retrived for the next page
+        records_retrieved += limit_for_current_request
+        offset += limit_for_current_request
+        page_number += 1
+
+
+def cached_page_generator(
+        **kwargs
+) -> CacheIterator[Page]:
+    return CacheIterator(page_generator(**kwargs))

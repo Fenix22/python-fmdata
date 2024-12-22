@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from enum import IntEnum
-from typing import List, Dict, Optional, Any, TypedDict, NotRequired
+from typing import List, Dict, Optional, Any, TypedDict
+
+from typing_extensions import NotRequired
 
 from fmdata.utils import clean_none
 

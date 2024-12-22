@@ -19,7 +19,8 @@ setup(
     url='https://github.com/Fenix22/python-fmdata',
     packages=['fmdata'],
     include_package_data=True,
-    install_requires=['requests>=2'],
+    install_requires=['requests>=2',
+                      'typing_extensions>=3'],
     extras_require={
         'cloud': ['pycognito>=0.1.4']
     },

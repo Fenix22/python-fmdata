@@ -1,1 +1,6 @@
 wheel
+requests
+pycognito
+setuptools
+typing_extensions
+django-environ
