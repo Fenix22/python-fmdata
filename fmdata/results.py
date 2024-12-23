@@ -66,7 +66,7 @@ class BaseResult(BaseProxy):
 
         return (msg for msg in self.messages
                 if int(msg.code) not in int_exclude_codes and (
-                            int_include_codes is None or (int(msg.code) in int_include_codes)))
+                        int_include_codes is None or (int(msg.code) in int_include_codes)))
 
     def raise_exception_if_has_error(self,
                                      include_codes: Optional[List[FMErrorEnum | int]] = None,
@@ -626,7 +626,7 @@ class RepositoryRecord(Data):
     client: object
     layout: str
 
-    def edit_record(self, check_mod_id: bool, **kwargs):
+    def edit_record(self, check_mod_id: bool = False, **kwargs):
         mod_id = self.mod_id if check_mod_id else None
 
         return self.client.edit_record(
@@ -652,6 +652,24 @@ class FoundSet(CacheIterator[RepositoryRecord]):
 
     def __iter__(self) -> Iterator[RepositoryRecord]:
         return super().__iter__()
+
+    def edit_records(self, check_mod_id: bool = False, limit: Optional[int] = None, **kwargs):
+        count = 0
+        for record in self:
+            if limit is not None and count >= limit:
+                break
+
+            record.edit_record(check_mod_id=check_mod_id, **kwargs)
+            count += 1
+
+    def delete_records(self, limit: Optional[int] = None, **kwargs):
+        count = 0
+        for record in self:
+            if limit is not None and count >= limit:
+                break
+
+            record.delete_record(**kwargs)
+            count += 1
 
 
 @dataclass(frozen=True)
