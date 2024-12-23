@@ -14,7 +14,7 @@ from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum, APIPath
 from fmdata.inputs import ScriptsInput, OptionsInput, _scripts_to_dict, \
     _portals_to_params, _sort_to_params, _date_formats_to_value, PortalsInput, \
-    SortInput, QueryInput, DateFormats, VerifySSL
+    SortInput, QueryInput, VerifySSL, DateInput
 from fmdata.results import \
     FileMakerErrorException, LogoutResult, CreateRecordResult, EditRecordResult, DeleteRecordResult, \
     GetRecordResult, ScriptResult, BaseResult, Message, LoginResult, UploadContainerResult, GetRecordsResult, \
@@ -166,7 +166,7 @@ class FMClient:
                       portal_data: Optional[Dict[str, Any]] = None,
                       scripts: Optional[ScriptsInput] = None,
                       options: Optional[OptionsInput] = None,
-                      date_formats: Optional[DateFormats] = None,
+                      date_formats: Optional[DateInput] = None,
                       **kwargs
                       ) -> CreateRecordResult:
 
@@ -195,7 +195,7 @@ class FMClient:
                     portals: Optional[Dict[str, Any]] = None,
                     scripts: Optional[ScriptsInput] = None,
                     options: Optional[OptionsInput] = None,
-                    date_formats: Optional[DateFormats] = None,
+                    date_formats: Optional[DateInput] = None,
                     **kwargs
                     ) -> EditRecordResult:
         path = APIPath.RECORD_ACTION.value.format(
@@ -313,7 +313,7 @@ class FMClient:
                     sort: Optional[SortInput] = None,
                     portals: Optional[PortalsInput] = None,
                     scripts: Optional[ScriptsInput] = None,
-                    date_formats: Optional[DateFormats] = None,
+                    date_formats: Optional[DateInput] = None,
                     **kwargs
                     ) -> GetRecordsResult:
 
@@ -364,7 +364,7 @@ class FMClient:
              limit: int = 100,
              portals: Optional[PortalsInput] = None,
              scripts: Optional[ScriptsInput] = None,
-             date_formats: Optional[DateFormats] = None,
+             date_formats: Optional[DateInput] = None,
              response_layout: Optional[str] = None,
              **kwargs
              ) -> FindResult:

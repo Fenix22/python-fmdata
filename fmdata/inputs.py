@@ -25,6 +25,8 @@ class DateFormats(IntEnum):
     ISO_8601 = 2
 
 
+DateInput = Union[int, DateFormats]
+
 QueryInput = List[Dict[str, Any]]
 
 
@@ -122,8 +124,11 @@ def _portals_to_params(portals: PortalsInput, names_as_string: bool = False) -> 
     return clean_none(params)
 
 
-def _date_formats_to_value(dateformats: Optional[DateFormats]) -> Optional[int]:
-    if dateformats is None:
+def _date_formats_to_value(date_input: Optional[DateInput]) -> Optional[int]:
+    if date_input is None:
         return None
 
-    return dateformats.value
+    if isinstance(date_input, int):
+        return date_input
+
+    return date_input.value
