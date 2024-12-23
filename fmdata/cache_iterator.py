@@ -50,8 +50,14 @@ class CacheIterator(Generic[T]):
             # If cached values changes, there is at least one element so is not empty
             return len(self.cached_values) == 0
 
-    def _cache_generator(self, iterator: Iterator) -> Iterator:
+    @property
+    def list(self):
+        while not self.cache_complete:
+            next(self._iter, None)
 
+        return self.cached_values
+
+    def _cache_generator(self, iterator: Iterator) -> Iterator:
         for val in iterator:
             self.cached_values.append(val)
             yield val
