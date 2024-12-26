@@ -30,7 +30,7 @@ class FMClientTestSuite(unittest.TestCase):
             query=[{'FullName': 'TestRecord0'}]
         )
 
-        result.raise_exception_if_has_error(exclude_codes=[FMErrorEnum.NO_ERROR, FMErrorEnum.NO_RECORDS_MATCH_REQUEST])
+        result.raise_exception_if_has_message(exclude_codes=[FMErrorEnum.NO_ERROR, FMErrorEnum.NO_RECORDS_MATCH_REQUEST])
 
         found_set = result.found_set
 
@@ -51,7 +51,7 @@ class FMClientTestSuite(unittest.TestCase):
         )
 
         # Assert that the record has been deleted
-        result.raise_exception_if_has_error(exclude_codes=[FMErrorEnum.NO_RECORDS_MATCH_REQUEST])
+        result.raise_exception_if_has_message(exclude_codes=[FMErrorEnum.NO_RECORDS_MATCH_REQUEST])
 
         found_set = result.found_set
         self.assertTrue(found_set.empty)

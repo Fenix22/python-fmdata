@@ -38,6 +38,9 @@ def _get_int(input: FMErrorEnum | int):
 @dataclass(frozen=True)
 class BaseResult(BaseProxy):
 
+    def _message_codes_that_are_not_considered_errors(self) -> List[int]:
+        return [FMErrorEnum.NO_ERROR.value]
+
     @cached_property
     def messages(self) -> List[Message]:
         return list(self.messages_iterator)
@@ -46,37 +49,32 @@ class BaseResult(BaseProxy):
     def messages_iterator(self) -> Iterator[Message]:
         return (Message(msg) for msg in self.raw_content['messages'])
 
-    def get_errors(self,
-                   include_codes: Optional[List[FMErrorEnum | int]] = None,
-                   exclude_codes: Optional[List[FMErrorEnum | int]] = None
-                   ) -> List[Message]:
-
-        return list(self.get_errors_iterator(include_codes=include_codes, exclude_codes=exclude_codes))
-
-    def get_errors_iterator(self,
-                            include_codes: Optional[List[FMErrorEnum | int]] = None,
-                            exclude_codes: Optional[List[FMErrorEnum | int]] = None
-                            ) -> Iterator[Message]:
-
-        if exclude_codes is None:
-            exclude_codes = [FMErrorEnum.NO_ERROR]
-
-        int_include_codes = [_get_int(code) for code in include_codes] if include_codes is not None else None
+    def get_messages_iterator(self,
+                              search_codes: Optional[List[FMErrorEnum | int]] = None,
+                              exclude_codes: Optional[List[FMErrorEnum | int]] = None
+                              ) -> Iterator[Message]:
+        int_include_codes = [_get_int(code) for code in search_codes] if search_codes is not None else None
         int_exclude_codes = [_get_int(code) for code in exclude_codes] if exclude_codes is not None else None
 
         return (msg for msg in self.messages
                 if int(msg.code) not in int_exclude_codes and (
                         int_include_codes is None or (int(msg.code) in int_include_codes)))
 
-    def raise_exception_if_has_error(self,
-                                     include_codes: Optional[List[FMErrorEnum | int]] = None,
-                                     exclude_codes: Optional[List[FMErrorEnum | int]] = None
-                                     ) -> None:
-
-        error = next(self.get_errors_iterator(include_codes=include_codes, exclude_codes=exclude_codes), None)
+    def raise_exception_if_has_message(self,
+                                       include_codes: Optional[List[FMErrorEnum | int]] = None,
+                                       exclude_codes: Optional[List[FMErrorEnum | int]] = None
+                                       ) -> None:
+        error = next(self.get_messages_iterator(search_codes=include_codes, exclude_codes=exclude_codes), None)
 
         if error is not None:
             raise FileMakerErrorException(code=error.code, message=error.message)
+
+    @cached_property
+    def errors(self) -> List[Message]:
+        return list(self.get_messages_iterator(exclude_codes=self._message_codes_that_are_not_considered_errors()))
+
+    def raise_exception_if_has_error(self) -> None:
+        self.raise_exception_if_has_message(exclude_codes=self._message_codes_that_are_not_considered_errors())
 
 
 @dataclass(frozen=True)

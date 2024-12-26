@@ -61,7 +61,7 @@ def _auto_manage_session(f):
 
             result: BaseResult = f(self, *args, **kwargs)
             invalid_token_error = next(
-                result.get_errors_iterator(include_codes=[FMErrorEnum.INVALID_FILEMAKER_DATA_API_TOKEN]), None)
+                result.get_messages_iterator(search_codes=[FMErrorEnum.INVALID_FILEMAKER_DATA_API_TOKEN]), None)
 
             # If not invalid token error, return result immediately
             if not invalid_token_error:
@@ -736,7 +736,7 @@ def page_generator(
         has_messages = any(result.messages_iterator)
         if has_messages:
             message_is_record_is_missing = any(
-                result.get_errors_iterator(include_codes=[FMErrorEnum.RECORD_IS_MISSING]))
+                result.get_messages_iterator(search_codes=[FMErrorEnum.RECORD_IS_MISSING]))
             if message_is_record_is_missing:
                 is_final_page = True
             else:
