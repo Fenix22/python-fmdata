@@ -53,12 +53,16 @@ class BaseResult(BaseProxy):
                               search_codes: Optional[List[FMErrorEnum | int]] = None,
                               exclude_codes: Optional[List[FMErrorEnum | int]] = None
                               ) -> Iterator[Message]:
-        int_include_codes = [_get_int(code) for code in search_codes] if search_codes is not None else None
+        int_search_codes = [_get_int(code) for code in search_codes] if search_codes is not None else None
         int_exclude_codes = [_get_int(code) for code in exclude_codes] if exclude_codes is not None else None
 
-        return (msg for msg in self.messages
-                if int(msg.code) not in int_exclude_codes and (
-                        int_include_codes is None or (int(msg.code) in int_include_codes)))
+        return (
+            msg for msg in self.messages
+            if (int_exclude_codes is None or (int(msg.code) not in int_exclude_codes))
+               and (
+                       int_search_codes is None or (int(msg.code) in int_search_codes)
+               )
+        )
 
     def raise_exception_if_has_message(self,
                                        include_codes: Optional[List[FMErrorEnum | int]] = None,
@@ -314,6 +318,7 @@ class CreateRecordResult(BaseResult):
     def response(self):
         return CreateRecordResponse(raw_content=self.raw_content['response'])
 
+
 @dataclass(frozen=True)
 class DuplicateRecordResponse(BaseProxy):
 
@@ -325,12 +330,14 @@ class DuplicateRecordResponse(BaseProxy):
     def record_id(self) -> str:
         return self.raw_content['recordId']
 
+
 @dataclass(frozen=True)
 class DuplicateRecordResult(BaseResult):
 
     @property
     def response(self):
         return DuplicateRecordResponse(raw_content=self.raw_content['response'])
+
 
 @dataclass(frozen=True)
 class EditRecordResponse(BaseProxy):
