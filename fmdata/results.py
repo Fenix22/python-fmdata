@@ -314,6 +314,23 @@ class CreateRecordResult(BaseResult):
     def response(self):
         return CreateRecordResponse(raw_content=self.raw_content['response'])
 
+@dataclass(frozen=True)
+class DuplicateRecordResponse(BaseProxy):
+
+    @property
+    def mod_id(self) -> str:
+        return self.raw_content['modId']
+
+    @property
+    def record_id(self) -> str:
+        return self.raw_content['recordId']
+
+@dataclass(frozen=True)
+class DuplicateRecordResult(BaseResult):
+
+    @property
+    def response(self):
+        return DuplicateRecordResponse(raw_content=self.raw_content['response'])
 
 @dataclass(frozen=True)
 class EditRecordResponse(BaseProxy):

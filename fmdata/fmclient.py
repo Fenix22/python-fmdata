@@ -19,7 +19,8 @@ from fmdata.results import \
     FileMakerErrorException, LogoutResult, CreateRecordResult, EditRecordResult, DeleteRecordResult, \
     GetRecordResult, ScriptResult, BaseResult, Message, LoginResult, UploadContainerResult, GetRecordsResult, \
     FindResult, SetGlobalResult, GetProductInfoResult, GetDatabasesResult, GetLayoutsResult, GetLayoutResult, \
-    GetScriptsResult, GetRecordsPaginatedResult, FindPaginatedResult, CommonSearchRecordsResult, Page
+    GetScriptsResult, GetRecordsPaginatedResult, FindPaginatedResult, CommonSearchRecordsResult, Page, \
+    DuplicateRecordResult
 from fmdata.utils import clean_none
 
 
@@ -185,6 +186,27 @@ class FMClient:
         })
 
         return CreateRecordResult(self.call_filemaker(method='POST', path=path, data=request_data, **kwargs))
+
+    @_auto_manage_session
+    def duplicate_record(self,
+                         layout: str,
+                         record_id: str,
+                         scripts: Optional[ScriptsInput] = None,
+                         **kwargs
+                         ) -> DuplicateRecordResult:
+
+        path = APIPath.RECORD_ACTION.value.format(
+            api_version=self._pop_api_version(kwargs),
+            database=self.database,
+            layout=layout,
+            record_id=record_id
+        )
+
+        params = clean_none({
+            **_scripts_to_dict(scripts),
+        })
+
+        return DuplicateRecordResult(self.call_filemaker(method='POST', params=params, path=path, **kwargs))
 
     @_auto_manage_session
     def edit_record(self,
