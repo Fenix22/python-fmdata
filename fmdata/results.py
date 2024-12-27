@@ -644,7 +644,7 @@ class FileMakerErrorException(Exception):
 
 
 @dataclass(frozen=True)
-class RepositoryRecord(Data):
+class Record(Data):
     client: object
     layout: str
 
@@ -665,14 +665,14 @@ class RepositoryRecord(Data):
             **kwargs)
 
 
-class FoundSet(CacheIterator[RepositoryRecord]):
-    def __init__(self, iterator: Iterator[RepositoryRecord]):
+class FoundSet(CacheIterator[Record]):
+    def __init__(self, iterator: Iterator[Record]):
         super().__init__(iterator)
 
-    def __getitem__(self, index: int) -> RepositoryRecord:
+    def __getitem__(self, index: int) -> Record:
         return super().__getitem__(index)
 
-    def __iter__(self) -> Iterator[RepositoryRecord]:
+    def __iter__(self) -> Iterator[Record]:
         return super().__iter__()
 
     def edit_records(self, check_mod_id: bool = False, limit: Optional[int] = None, **kwargs):
@@ -704,16 +704,16 @@ PageIterator = Iterator[Page]
 
 def records_iterator_from_common_search_result(
         result: CommonSearchRecordsResult,
-) -> Iterator[RepositoryRecord]:
+) -> Iterator[Record]:
     for data_entry in result.response.data:
-        yield RepositoryRecord(
+        yield Record(
             raw_content=data_entry.raw_content,
             client=result.client,
             layout=result.layout
         )
 
 
-def records_iterator_from_page_iterator(page_iterator: PageIterator) -> Iterator[RepositoryRecord]:
+def records_iterator_from_page_iterator(page_iterator: PageIterator) -> Iterator[Record]:
     for page in page_iterator:
         yield from records_iterator_from_common_search_result(
             result=page.result,
