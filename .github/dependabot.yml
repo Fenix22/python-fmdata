@@ -1,0 +1,6 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"       # Use the pip ecosystem for Python projects
+    directory: "/"                 # Location of your dependency manifests (e.g., requirements.txt)
+    schedule:
+      interval: "weekly"           # Check for updates weekly (choose "daily", "weekly", or "monthly")
