@@ -13,7 +13,7 @@ setup(
     python_requires='>=3.8',
     author='Lorenzo De Siena',
     author_email='dev.lorenzo.desiena@gmail.com',
-    description='python-fmdata is a wrapper around the FileMaker Data API.',
+    description='fmdata is a wrapper around the FileMaker Data API.',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/Fenix22/python-fmdata',

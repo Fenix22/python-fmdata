@@ -1,5 +1,12 @@
 from enum import Enum, unique, IntEnum
 
+PACKAGE_NAME = 'fmdata'
+try:
+    from importlib.metadata import version  # Python 3.8+
+    __version__ = version(PACKAGE_NAME)
+except ImportError:
+    from pkg_resources import get_distribution  # Python 3.6-3.7
+    __version__ = get_distribution(PACKAGE_NAME).version
 
 class APIPath(Enum):
     META_PRODUCT = '/fmi/data/{api_version}/productInfo'
