@@ -148,17 +148,28 @@ class PortalDataInfo(BaseProxy):
 
 @dataclass(frozen=True)
 class PortalData(BaseProxy):
-    table_name: str
+    portal_data_list: PortalDataList
 
-    # TODO check
-    @cached_property
-    def field_data(self) -> Dict[str, Any]:
-        prefix = f"{self.table_name}::"
-        return {
-            key[len(prefix):]: value
-            for key, value in self.raw_content.items()
-            if key.startswith(prefix)
-        }
+    def __getitem__(self, key: str) -> Optional[str]:
+        return self.get(key, None)
+
+    def get(self, key: str, default: Optional[str] = None, table_name: Optional[str] = None) -> Optional[str]:
+        if table_name is None:
+            table_name = self.portal_data_list.table_name
+
+        if table_name is None:
+            raise ValueError("Cannot auto detect table name, please provide it .get(key, default, table_name)")
+
+        real_key = table_name + "::" + key
+
+        return self.raw_content.get(real_key, default)
+
+    def calculate_table_name(self) -> Optional[str]:
+        for key in self.raw_content:
+            if '::' in key:
+                return key.split('::', 1)[0]
+
+        return None
 
     @property
     def record_id(self) -> Optional[str]:
@@ -167,6 +178,27 @@ class PortalData(BaseProxy):
     @property
     def mod_id(self) -> Optional[str]:
         return self.raw_content.get('modId', None)
+
+
+class PortalDataList(CacheIterator[PortalData]):
+
+    def __init__(self, portal_name: str, iterator: Iterator[Dict[str, Any]]) -> None:
+        self.portal_name: str = portal_name
+        super().__init__(iterator=(PortalData(raw_content=entry, portal_data_list=self) for entry in iterator))
+
+    def __getitem__(self, index: int) -> PortalData:
+        return super().__getitem__(index)
+
+    def __iter__(self) -> Iterator[PortalData]:
+        return super().__iter__()
+
+    @cached_property
+    def table_name(self):
+        first_element = next(self.__iter__(), None)
+        if first_element is not None:
+            return first_element.calculate_table_name()
+
+        return None
 
 
 @dataclass(frozen=True)
@@ -200,6 +232,12 @@ class DataInfo(BaseProxy):
 @dataclass(frozen=True)
 class Data(BaseProxy):
 
+    def __getitem__(self, key: str) -> Optional[str]:
+        return self.get(key, None)
+
+    def get(self, key: str, default: Optional[str] = None) -> str:
+        return self.field_data.get(key, default)
+
     @property
     def field_data(self) -> Dict[str, Any]:
         return self.raw_content['fieldData']
@@ -223,10 +261,10 @@ class Data(BaseProxy):
                 portal_data_info_list) if portal_data_info_list is not None else None
 
     @cached_property
-    def portal_data(self) -> Optional[Dict[str, PortalData]]:
+    def portal_data(self) -> Optional[Dict[str, PortalDataList]]:
         portal_data: Optional[Dict[str, Any]] = self.raw_content.get('portalData', None)
         return {
-            key: PortalData(table_name=key, raw_content=value)
+            key: PortalDataList(portal_name=key, iterator=(item for item in value))
             for key, value in portal_data.items()
         } if portal_data is not None else None
 
@@ -651,18 +689,37 @@ class Record(Data):
     def edit_record(self, check_mod_id: bool = False, **kwargs):
         mod_id = self.mod_id if check_mod_id else None
 
-        return self.client.edit_record(
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        return fm_client.edit_record(
             layout=self.layout,
             record_id=self.record_id,
             mod_id=mod_id,
             **kwargs
         )
 
-    def delete_record(self, **kwargs):
-        return self.client.delete_record(
+    def duplicate_record(self, **kwargs):
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        return fm_client.duplicate_record(
             layout=self.layout,
             record_id=self.record_id,
             **kwargs)
+
+    def delete_record(self, **kwargs):
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        return fm_client.delete_record(
+            layout=self.layout,
+            record_id=self.record_id,
+            **kwargs)
+
+    @property
+    def portals(self) -> Optional[Dict[str, PortalDataList]]:
+        return self.portal_data if self.portal_data is not None else {}
 
 
 class FoundSet(CacheIterator[Record]):
