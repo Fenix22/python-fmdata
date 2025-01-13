@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
-from typing import List, Optional, Dict, Any, Iterator, Iterable
+from typing import List, Optional, Dict, Any, Iterator, Iterable, Set
 
 from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum
@@ -148,17 +148,28 @@ class PortalDataInfo(BaseProxy):
 
 @dataclass(frozen=True)
 class PortalData(BaseProxy):
-    table_name: str
+    portal_data_list: PortalDataList
 
-    # TODO check
-    @cached_property
-    def field_data(self) -> Dict[str, Any]:
-        prefix = f"{self.table_name}::"
-        return {
-            key[len(prefix):]: value
-            for key, value in self.raw_content.items()
-            if key.startswith(prefix)
-        }
+    def __getitem__(self, key: str) -> Optional[str]:
+        return self.get(key, None)
+
+    def get(self, key: str, default: Optional[str] = None, table_name: Optional[str] = None) -> Optional[str]:
+        if table_name is None:
+            table_name = self.portal_data_list.table_name
+
+        if table_name is None:
+            raise ValueError("Cannot auto detect table name, please provide it .get(key, default, table_name)")
+
+        real_key = table_name + "::" + key
+
+        return self.raw_content.get(real_key, default)
+
+    def calculate_table_name(self) -> Optional[str]:
+        for key in self.raw_content:
+            if '::' in key:
+                return key.split('::', 1)[0]
+
+        return None
 
     @property
     def record_id(self) -> Optional[str]:
@@ -167,6 +178,27 @@ class PortalData(BaseProxy):
     @property
     def mod_id(self) -> Optional[str]:
         return self.raw_content.get('modId', None)
+
+
+class PortalDataList(CacheIterator[PortalData]):
+
+    def __init__(self, portal_name: str, iterator: Iterator[Dict[str, Any]]) -> None:
+        self.portal_name: str = portal_name
+        super().__init__(iterator=(PortalData(raw_content=entry, portal_data_list=self) for entry in iterator))
+
+    def __getitem__(self, index: int) -> PortalData:
+        return super().__getitem__(index)
+
+    def __iter__(self) -> Iterator[PortalData]:
+        return super().__iter__()
+
+    @cached_property
+    def table_name(self):
+        first_element = next(self.__iter__(), None)
+        if first_element is not None:
+            return first_element.calculate_table_name()
+
+        return None
 
 
 @dataclass(frozen=True)
@@ -200,6 +232,12 @@ class DataInfo(BaseProxy):
 @dataclass(frozen=True)
 class Data(BaseProxy):
 
+    def __getitem__(self, key: str) -> Optional[str]:
+        return self.get(key, None)
+
+    def get(self, key: str, default: Optional[str] = None) -> str:
+        return self.field_data.get(key, default)
+
     @property
     def field_data(self) -> Dict[str, Any]:
         return self.raw_content['fieldData']
@@ -223,10 +261,10 @@ class Data(BaseProxy):
                 portal_data_info_list) if portal_data_info_list is not None else None
 
     @cached_property
-    def portal_data(self) -> Optional[Dict[str, PortalData]]:
+    def portal_data(self) -> Optional[Dict[str, PortalDataList]]:
         portal_data: Optional[Dict[str, Any]] = self.raw_content.get('portalData', None)
         return {
-            key: PortalData(table_name=key, raw_content=value)
+            key: PortalDataList(portal_name=key, iterator=(for _ in value))
             for key, value in portal_data.items()
         } if portal_data is not None else None
 
@@ -643,26 +681,210 @@ class FileMakerErrorException(Exception):
         return FileMakerErrorException(code=error.code, message=error.message)
 
 
+class MutablePortalRecord:
+
+    def __init__(self, portal_records: MutablePortalRecords, portal_data: PortalData):
+        self.portal_records: MutablePortalRecords = portal_records
+        self.portal_data: PortalData = portal_data
+
+        self.mod_id = self.portal_data.mod_id
+        self.field_changes: Dict[str, Any] = {}
+        self._to_be_deleted: bool = False
+
+    def __getitem__(self, key: str) -> Optional[str]:
+        return self.get(key, None)
+
+    def get(self, key: str, default: Optional[str] = None, table_name: Optional[str] = None) -> Optional[str]:
+        if table_name is None:
+            table_name = self.table_name
+
+        if table_name is None:
+            raise ValueError("Cannot auto detect table name, please provide it .get(key, default, table_name)")
+
+        real_key = table_name + "::" + key
+
+        return self.portal_data.raw_content.get(real_key, self.field_changes.get(real_key, default))
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        return self.set(key, value)
+
+    def set(self, key: str, value: Any, table_name: Optional[str] = None) -> None:
+        if table_name is None:
+            table_name = self.table_name
+
+        if table_name is None:
+            raise ValueError("Cannot auto detect table name, please provide it .set(key, value, table_name)")
+
+        self._get_or_init_changes()
+        self.field_changes[table_name + "::" + key] = value
+
+    def delete(self, table_name: Optional[str] = None):
+        if table_name is None:
+            table_name = self.table_name
+
+        if table_name is None:
+            raise ValueError("Cannot auto detect table name, please provide it .delete(table_name)")
+
+        self._get_or_init_changes()
+        self._to_be_deleted = True
+
+    def _get_or_init_changes(self) -> None:
+        self._record.portal_changes.add(self)
+
+    @property
+    def to_be_deleted(self) -> bool:
+        return self._to_be_deleted
+
+    @property
+    def _record(self) -> MutableRecord:
+        return self.portal_records.record
+
+    @property
+    def record_id(self) -> str:
+        return self.portal_data.record_id
+
+    @property
+    def table_name(self):
+        return self.portal_records.table_name
+
+    @property
+    def portal_name(self):
+        return self.portal_records.portal_name
+
+
+class MutablePortalRecords(List[MutablePortalRecord]):
+    def __init__(self, record: MutableRecord, portal_data_list: PortalDataList, portal_name: str):
+        super().__init__(
+            (MutablePortalRecord(portal_records=self, portal_data=portal_data) for portal_data in portal_data_list))
+        self.record = record
+        self.portal_data_list = portal_data_list
+        self.portal_name = portal_name
+
+    @property
+    def table_name(self):
+        return self.portal_data_list.table_name
+
+
+class MutableRecord:
+    def __init__(self, initial_record: Record):
+        self.initial_record = initial_record
+
+        self.mod_id = self.initial_record.mod_id
+        self.field_changes: Dict[str, Any] = {}
+        self.portal_changes: Set[MutablePortalRecord] = set()
+
+    def commit(self, check_mod_id: bool = True, **kwargs):
+        if not self.is_dirty:
+            return
+
+        #TODO sbagliato, dobbiamo farlo di tutti i portali perchè dobbiamo sempre checkare il modId
+        portal_data = {
+            portal.portal_name: {
+                "recordId": portal.record_id,
+                "modId": portal.mod_id if check_mod_id else None,
+                **portal.field_changes,
+            }
+            for portal in self.portal_changes
+        }
+
+        portals_records_to_be_deleted = [portal_record
+                                         for portal_record in self.portal_changes if portal_record.to_be_deleted]
+        related_records_to_be_deleted = [portal_record.table_name + "." + portal_record.record_id
+                                         for portal_record in portals_records_to_be_deleted]
+
+        field_data = {
+            **self.field_changes,
+            "deleteRelated": related_records_to_be_deleted
+        }
+
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        result = fm_client.edit_record(
+            record_id=self.record_id,
+            mod_id=self.mod_id if check_mod_id else None,
+            field_data=field_data,
+            portal_data=portal_data,
+            **kwargs
+        )
+
+        result.raise_exception_if_has_error()
+        self.mod_id = result.response.mod_id
+
+        for portal_record in self.portal_changes:
+            portal_record._to_be_deleted = False
+
+        self.field_changes.clear()
+        self.portal_changes.clear()
+
+    def __getitem__(self, key: str) -> str:
+        return self.get(key, None)
+
+    def get(self, key: str, default: Optional[str] = None) -> str:
+        return self.field_changes.get(key, self.initial_record.get(key, default))
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.field_changes[key] = value
+
+    @property
+    def is_dirty(self) -> bool:
+        return len(self._changes) > 0
+
+    @property
+    def record_id(self) -> str:
+        return self.initial_record.record_id
+
+    @cached_property
+    def portals(self):
+        return {
+            key: MutablePortalRecords(record=self, portal_data_list=value, portal_name=key)
+            for key, value in self.initial_record.portals.items()
+        }
+
+
 @dataclass(frozen=True)
 class Record(Data):
     client: object
     layout: str
 
+    @cached_property
+    def mutable_instance(self):
+        return MutableRecord(self)
+
     def edit_record(self, check_mod_id: bool = False, **kwargs):
         mod_id = self.mod_id if check_mod_id else None
 
-        return self.client.edit_record(
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        return fm_client.edit_record(
             layout=self.layout,
             record_id=self.record_id,
             mod_id=mod_id,
             **kwargs
         )
 
-    def delete_record(self, **kwargs):
-        return self.client.delete_record(
+    def duplicate_record(self, **kwargs):
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        return fm_client.duplicate_record(
             layout=self.layout,
             record_id=self.record_id,
             **kwargs)
+
+    def delete_record(self, **kwargs):
+        from fmdata import FMClient
+        fm_client: FMClient = self.client
+
+        return fm_client.delete_record(
+            layout=self.layout,
+            record_id=self.record_id,
+            **kwargs)
+
+    @property
+    def portals(self) -> Optional[Dict[str, PortalDataList]]:
+        return self.portal_data if self.portal_data is not None else {}
 
 
 class FoundSet(CacheIterator[Record]):
@@ -707,7 +929,7 @@ def records_iterator_from_common_search_result(
 ) -> Iterator[Record]:
     for data_entry in result.response.data:
         yield Record(
-            raw_content=data_entry.raw_content,
+            data=data_entry,
             client=result.client,
             layout=result.layout
         )

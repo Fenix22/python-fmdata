@@ -214,7 +214,7 @@ class FMClient:
                     record_id: str,
                     field_data: Dict[str, Any],
                     mod_id: Optional[str] = None,
-                    portals: Optional[Dict[str, Any]] = None,
+                    portal_data: Optional[Dict[str, Any]] = None,
                     scripts: Optional[ScriptsInput] = None,
                     options: Optional[OptionsInput] = None,
                     date_formats: Optional[DateInput] = None,
@@ -230,7 +230,7 @@ class FMClient:
         request_data = clean_none({
             'fieldData': field_data,
             'modId': mod_id,
-            'portalData': portals,
+            'portalData': portal_data,
             'options': options,
             'date_formats': _date_formats_to_value(date_formats),
             **_scripts_to_dict(scripts),
