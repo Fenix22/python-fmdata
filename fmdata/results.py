@@ -67,18 +67,21 @@ class BaseResult(BaseProxy):
     def raise_exception_if_has_message(self,
                                        include_codes: Optional[List[FMErrorEnum | int]] = None,
                                        exclude_codes: Optional[List[FMErrorEnum | int]] = None
-                                       ) -> None:
+                                       ) -> BaseResult:
         error = next(self.get_messages_iterator(search_codes=include_codes, exclude_codes=exclude_codes), None)
 
         if error is not None:
             raise FileMakerErrorException(code=error.code, message=error.message)
 
+        return self
+
     @cached_property
     def errors(self) -> List[Message]:
         return list(self.get_messages_iterator(exclude_codes=self._message_codes_that_are_not_considered_errors()))
 
-    def raise_exception_if_has_error(self) -> None:
+    def raise_exception_if_has_error(self) -> BaseResult:
         self.raise_exception_if_has_message(exclude_codes=self._message_codes_that_are_not_considered_errors())
+        return self
 
 
 @dataclass(frozen=True)
@@ -179,7 +182,7 @@ class PortalData(BaseProxy):
     def mod_id(self) -> Optional[str]:
         return self.raw_content.get('modId', None)
 
-
+#TODO eliminare?
 class PortalDataList(CacheIterator[PortalData]):
 
     def __init__(self, portal_name: str, iterator: Iterator[Dict[str, Any]]) -> None:
@@ -293,16 +296,12 @@ class CommonSearchRecordsResult(BaseResult):
     layout: str
     client: object
 
+    def _message_codes_that_are_not_considered_errors(self) -> List[int]:
+        return [FMErrorEnum.NO_ERROR.value, FMErrorEnum.NO_RECORDS_MATCH_REQUEST]
+
     @property
     def response(self):
         return CommonSearchRecordsResponseField(self.raw_content['response'])
-
-    @cached_property
-    def found_set(self):
-        if self.response.data_iterator is None:
-            return FoundSet(iter([]))
-
-        return FoundSet(records_iterator_from_common_search_result(self))
 
 
 @dataclass(frozen=True)
@@ -323,11 +322,6 @@ class FindResult(CommonSearchRecordsResult):
 @dataclass(frozen=True)
 class PaginatedRecordResult:
     pages: CacheIterator[Page]
-
-    @cached_property
-    def found_set(self):
-        return FoundSet(records_iterator_from_page_iterator(self.pages.__iter__()).__iter__())
-
 
 class GetRecordsPaginatedResult(PaginatedRecordResult):
     pass
@@ -721,7 +715,7 @@ class Record(Data):
     def portals(self) -> Optional[Dict[str, PortalDataList]]:
         return self.portal_data if self.portal_data is not None else {}
 
-
+#Todo eliminare?
 class FoundSet(CacheIterator[Record]):
     def __init__(self, iterator: Iterator[Record]):
         super().__init__(iterator)
@@ -732,22 +726,22 @@ class FoundSet(CacheIterator[Record]):
     def __iter__(self) -> Iterator[Record]:
         return super().__iter__()
 
-    def edit_records(self, check_mod_id: bool = False, limit: Optional[int] = None, **kwargs):
+    def edit_all_records(self, check_mod_id: bool = False, limit: Optional[int] = None, **kwargs):
         count = 0
         for record in self:
             if limit is not None and count >= limit:
                 break
 
-            record.edit_record(check_mod_id=check_mod_id, **kwargs)
+            record.edit_record(check_mod_id=check_mod_id, **kwargs).raise_exception_if_has_error()
             count += 1
 
-    def delete_records(self, limit: Optional[int] = None, **kwargs):
+    def delete_all_records(self, limit: Optional[int] = None, **kwargs):
         count = 0
         for record in self:
             if limit is not None and count >= limit:
                 break
 
-            record.delete_record(**kwargs)
+            record.delete_record(**kwargs).raise_exception_if_has_error()
             count += 1
 
 
@@ -759,6 +753,7 @@ class Page:
 PageIterator = Iterator[Page]
 
 
+#TODO eliminare entrambi
 def records_iterator_from_common_search_result(
         result: CommonSearchRecordsResult,
 ) -> Iterator[Record]:

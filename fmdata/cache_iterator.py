@@ -21,6 +21,9 @@ class CacheIterator(Generic[T]):
 
         return itertools.chain(self.cached_values, self._iter)
 
+    def __len__(self):
+        return len(self.list)
+
     def __getitem__(self, index: int) -> T:
         while index >= len(self.cached_values):
             next_item = next(self._iter, None)
