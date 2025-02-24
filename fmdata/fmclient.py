@@ -14,13 +14,13 @@ from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum, APIPath
 from fmdata.inputs import ScriptsInput, OptionsInput, _scripts_to_dict, \
     _portals_to_params, _sort_to_params, _date_formats_to_value, PortalsInput, \
-    SortInput, QueryInput, VerifySSL, DateInput
+    SortInput, QueryInput, VerifySSL, DateInput, SinglePortalInput
 from fmdata.results import \
     FileMakerErrorException, LogoutResult, CreateRecordResult, EditRecordResult, DeleteRecordResult, \
     GetRecordResult, ScriptResult, BaseResult, Message, LoginResult, UploadContainerResult, GetRecordsResult, \
     FindResult, SetGlobalResult, GetProductInfoResult, GetDatabasesResult, GetLayoutsResult, GetLayoutResult, \
     GetScriptsResult, GetRecordsPaginatedResult, FindPaginatedResult, CommonSearchRecordsResult, Page, \
-    DuplicateRecordResult
+    DuplicateRecordResult, PortalPage
 from fmdata.utils import clean_none
 
 
@@ -422,7 +422,7 @@ class FMClient:
         return FindPaginatedResult(
             pages=cached_page_generator(
                 client=self,
-                fn_get_response=self.get_records,
+                fn_get_response=self.find,
                 offset=offset,
                 page_size=page_size,
                 limit=limit,
@@ -584,24 +584,6 @@ class FMClient:
                 f"retry timeout is {self.too_fast_login_retry_timeout * 1000:.0f}ms."
             )
 
-    def with_layout(self, layout: str) -> FMClient:
-        return FMClientProxy(client=self, layout=layout)
-
-    def with_api_version(self, api_version: str) -> FMClient:
-        return FMClientProxy(client=self, api_version=api_version)
-
-    def with_connection_timeout(self, connection_timeout: float) -> FMClient:
-        return FMClientProxy(client=self, connection_timeout=connection_timeout)
-
-    def with_read_timeout(self, read_timeout: float) -> FMClient:
-        return FMClientProxy(client=self, read_timeout=read_timeout)
-
-    def with_http_client_extra_params(self, http_client_extra_params: Dict) -> FMClient:
-        return FMClientProxy(client=self, http_client_extra_params=http_client_extra_params)
-
-    def with_verify_ssl(self, verify_ssl: VerifySSL) -> FMClient:
-        return FMClientProxy(client=self, verify_ssl=verify_ssl)
-
     def _request(self, *args, **kwargs) -> requests.Response:
         return requests.request(*args,
                                 timeout=(self._pop_connection_timeout(kwargs), self._pop_read_timeout(kwargs)),
@@ -642,60 +624,6 @@ class FMClient:
     def __repr__(self) -> str:
         return f"<FMClient logged_in={bool(not self._session_invalid)} token={self._token} database={self.database}>"
 
-
-@dataclass(frozen=True)
-class FMClientProxy:
-    client: FMClient
-    layout: Optional[str] = None
-    api_version: Optional[str] = None
-    connection_timeout: Optional[float] = None
-    read_timeout: Optional[float] = None
-    http_client_extra_params: Optional[Dict] = None
-    verify_ssl: Optional[VerifySSL] = None
-
-    def __getattr__(self, name):
-        attr = getattr(self.client, name)
-        if callable(attr):
-            return lambda *args, **kwargs: attr(*args, **{**self.proxy_data, **kwargs})
-        else:
-            return attr
-
-    @cached_property
-    def proxy_data(self):
-        return clean_none({
-            'layout': self.layout,
-            'api_version': self.api_version,
-            'connection_timeout': self.connection_timeout,
-            'read_timeout': self.read_timeout,
-            'http_client_extra_params': self.http_client_extra_params,
-            'verify_ssl': self.verify_ssl,
-        })
-
-    def with_layout(self, layout: str) -> FMClient:
-        new_proxy_data = {**self.proxy_data, 'layout': layout}
-        return FMClientProxy(client=self.client, **new_proxy_data)
-
-    def with_api_version(self, api_version: str) -> FMClient:
-        new_proxy_data = {**self.proxy_data, 'api_version': api_version}
-        return FMClientProxy(client=self.client, **new_proxy_data)
-
-    def with_connection_timeout(self, connection_timeout: float) -> FMClient:
-        new_proxy_data = {**self.proxy_data, 'connection_timeout': connection_timeout}
-        return FMClientProxy(client=self.client, **new_proxy_data)
-
-    def with_read_timeout(self, read_timeout: float) -> FMClient:
-        new_proxy_data = {**self.proxy_data, 'read_timeout': read_timeout}
-        return FMClientProxy(client=self.client, **new_proxy_data)
-
-    def with_http_client_extra_params(self, http_client_extra_params: Dict) -> FMClient:
-        new_proxy_data = {**self.proxy_data, 'http_client_extra_params': http_client_extra_params}
-        return FMClientProxy(client=self.client, **new_proxy_data)
-
-    def with_verify_ssl(self, verify_ssl: VerifySSL) -> FMClient:
-        new_proxy_data = {**self.proxy_data, 'verify_ssl': verify_ssl}
-        return FMClientProxy(client=self.client, **new_proxy_data)
-
-
 def page_generator(
         client: FMClient,
         layout: str,
@@ -727,13 +655,14 @@ def page_generator(
 
     is_final_page = False
     records_retrieved = 0
-    page_number = 0
 
     while is_final_page is False:
+        # TODO
+        print("itero page generator", records_retrieved, offset, page_size, limit)
         # Calculate the limit for the next request
         if limit is None:
             # If the global limit is not defined we don't know how many records we have to retrieve
-            # so we set the limit for the next request to the page_size and proceed until we get RECORD_IS_MISSING
+            # so we set the limit for the next request to the page_size and proceed until we get NO_RECORDS_MATCH_REQUEST
             limit_for_current_request = page_size
         else:
             remaining = limit - records_retrieved
@@ -746,6 +675,7 @@ def page_generator(
 
             limit_for_current_request = min(page_size, remaining)
 
+        print("chiamo request", offset, limit_for_current_request)
         client_response = fn_get_response(
             layout=layout,
             offset=offset,
@@ -755,24 +685,113 @@ def page_generator(
 
         result = CommonSearchRecordsResult(raw_content=client_response.raw_content, client=client,
                                            layout=layout)
-        has_messages = any(result.messages_iterator)
-        if has_messages:
-            message_is_record_is_missing = any(
-                result.get_messages_iterator(search_codes=[FMErrorEnum.RECORD_IS_MISSING]))
-            if message_is_record_is_missing:
+
+        result.raise_exception_if_has_error()
+        print("result", result)
+        if any(result.get_messages_iterator(search_codes=[FMErrorEnum.NO_RECORDS_MATCH_REQUEST])):
+            response_entries_count = 0
+            is_final_page = True
+        else:
+            response_entries_count = len(result.response.data)
+            if response_entries_count == 0 or response_entries_count < limit_for_current_request:
                 is_final_page = True
-            else:
-                result.raise_exception_if_has_error()
 
         yield Page(result=result)
 
         # Update offset and retrived for the next page
-        records_retrieved += limit_for_current_request
-        offset += limit_for_current_request
-        page_number += 1
+        records_retrieved += response_entries_count
+        offset += response_entries_count
+
 
 
 def cached_page_generator(
         **kwargs
 ) -> CacheIterator[Page]:
     return CacheIterator(page_generator(**kwargs))
+
+
+def portal_page_generator(
+        client: FMClient,
+        layout: str,
+        record_id: str,
+        portal_name: str,
+        offset: int = 1,
+        page_size: Optional[int] = None,
+        limit: Optional[int] = 200,
+        **kwargs
+) -> Iterator[PortalPage]:
+    if offset < 1:
+        raise ValueError("offset must be greater or equal to 1")
+
+    if page_size is None and limit is None:
+        raise ValueError("Either page_size or limit must be provided")
+
+    if page_size is not None and page_size <= 0:
+        raise ValueError("page_size must be greater than 0 or None")
+
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be greater than 0 or None")
+
+    # At this point we have at least one between "page_size" and "limit" set.
+    # We want to read all the records in range [offset, offset+limit-1]
+    # If "limit" = None it means that we want to read the full DB
+    # If the "page_size" is None it means that we want to read all the records in one go
+
+    if page_size is None or (limit is not None and limit <= page_size):
+        page_size = limit
+
+    is_final_page = False
+    records_retrieved = 0
+
+    while is_final_page is False:
+        # TODO
+        print("itero page generator", records_retrieved, offset, page_size, limit)
+        # Calculate the limit for the next request
+        if limit is None:
+            # If the global limit is not defined we don't know how many records we have to retrieve
+            # so we set the limit for the next request to the page_size and proceed until we get NO_RECORDS_MATCH_REQUEST
+            limit_for_current_request = page_size
+        else:
+            remaining = limit - records_retrieved
+
+            if remaining <= page_size:
+                # If the remaining records are less than the page_size we are sure that this will be the last page
+                is_final_page = True
+
+            assert remaining > 0, "remaining <= 0! This should not happen"
+
+            limit_for_current_request = min(page_size, remaining)
+
+        print("chiamo request", offset, limit_for_current_request)
+
+        portals = {
+            portal_name: SinglePortalInput(offset=offset, limit=limit_for_current_request)
+        }
+
+        result: GetRecordResult = client.get_record(
+            layout=layout,
+            record_id=record_id,
+            portals=portals,
+            **kwargs
+        )
+
+        result.raise_exception_if_has_error()
+
+        print("result", result)
+
+        response_record_count = len(result.response.data)
+        if not response_record_count == 1:
+            response_entries_count = 0
+            is_final_page = True
+        else:
+            response_entries_count = len(result.response.data[0].get(portal_name, []))
+
+            if response_entries_count == 0 or response_entries_count < limit_for_current_request:
+                is_final_page = True
+
+        yield PortalPage(result=result)
+
+        # Update offset and retrived for the next page
+        records_retrieved += response_entries_count
+        offset += response_entries_count
+

@@ -21,13 +21,22 @@ class CacheIterator(Generic[T]):
 
         return itertools.chain(self.cached_values, self._iter)
 
-    def __getitem__(self, index: int) -> T:
-        while index >= len(self.cached_values):
-            next_item = next(self._iter, None)
-            if next_item is None:
-                break
+    def __len__(self):
+        return len(self.list)
 
-        return self.cached_values[index]
+    def __getitem__(self, k) -> T:
+        def read_until(index: int):
+            while index >= len(self.cached_values):
+                next_item = next(self._iter, None)
+                if next_item is None:
+                    break
+
+        if isinstance(k, slice):
+            read_until(k.stop)
+            return self.cached_values[k]
+
+        read_until(k)
+        return self.cached_values[k]
 
     def __repr__(self) -> str:
         return '<CacheIterator consumed={} is_complete={}>'.format(

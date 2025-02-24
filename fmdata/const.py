@@ -1,12 +1,38 @@
 from enum import Enum, unique, IntEnum
 
 PACKAGE_NAME = 'fmdata'
+
 try:
-    from importlib.metadata import version  # Python 3.8+
-    __version__ = version(PACKAGE_NAME)
+    # Python 3.8+ standard library
+    from importlib.metadata import version, PackageNotFoundError
 except ImportError:
-    from pkg_resources import get_distribution  # Python 3.6-3.7
-    __version__ = get_distribution(PACKAGE_NAME).version
+    try:
+        # Backport for older Python versions or as an intermediate fallback
+        from importlib_metadata import version, PackageNotFoundError
+    except ImportError:
+        try:
+            # Legacy support using pkg_resources if other methods fail
+            from pkg_resources import get_distribution, DistributionNotFound
+
+            class PackageNotFoundError(Exception):
+                pass
+
+            def version(package_name):
+                try:
+                    return get_distribution(package_name).version
+                except DistributionNotFound:
+                    raise PackageNotFoundError
+        except ImportError:
+            raise ImportError(
+                "No supported methods for retrieving package version are available."
+            )
+
+# Retrieve the package version, with a fallback for local test environments
+try:
+    __version__ = version(PACKAGE_NAME)
+except PackageNotFoundError:
+    # Fallback version string for local development or testing scenarios
+    __version__ = "0.0.0-dev"
 
 class APIPath(Enum):
     META_PRODUCT = '/fmi/data/{api_version}/productInfo'

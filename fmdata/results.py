@@ -38,7 +38,7 @@ def _get_int(input: FMErrorEnum | int):
 @dataclass(frozen=True)
 class BaseResult(BaseProxy):
 
-    def _message_codes_that_are_not_considered_errors(self) -> List[int]:
+    def _non_errors_message_codes(self) -> List[int]:
         return [FMErrorEnum.NO_ERROR.value]
 
     @cached_property
@@ -67,18 +67,21 @@ class BaseResult(BaseProxy):
     def raise_exception_if_has_message(self,
                                        include_codes: Optional[List[FMErrorEnum | int]] = None,
                                        exclude_codes: Optional[List[FMErrorEnum | int]] = None
-                                       ) -> None:
+                                       ) -> BaseResult:
         error = next(self.get_messages_iterator(search_codes=include_codes, exclude_codes=exclude_codes), None)
 
         if error is not None:
             raise FileMakerErrorException(code=error.code, message=error.message)
 
+        return self
+
     @cached_property
     def errors(self) -> List[Message]:
-        return list(self.get_messages_iterator(exclude_codes=self._message_codes_that_are_not_considered_errors()))
+        return list(self.get_messages_iterator(exclude_codes=self._non_errors_message_codes()))
 
-    def raise_exception_if_has_error(self) -> None:
-        self.raise_exception_if_has_message(exclude_codes=self._message_codes_that_are_not_considered_errors())
+    def raise_exception_if_has_error(self) -> BaseResult:
+        self.raise_exception_if_has_message(exclude_codes=self._non_errors_message_codes())
+        return self
 
 
 @dataclass(frozen=True)
@@ -148,28 +151,28 @@ class PortalDataInfo(BaseProxy):
 
 @dataclass(frozen=True)
 class PortalData(BaseProxy):
-    portal_data_list: PortalDataList
+    def __getitem__(self, key: str) -> Optional[PortalDataList]:
+        return self.get(key, None)
 
+    def get(self, key: str, default: Optional[any] = None) -> Optional[PortalDataList]:
+        items: Optional[list[dict]] = self.raw_content.get(key, None)
+        if items is None:
+            return default
+
+        return PortalDataList(iterator=(PortalDataValue(raw_content=item) for item in items))
+
+
+@dataclass(frozen=True)
+class PortalDataValue(BaseProxy):
     def __getitem__(self, key: str) -> Optional[str]:
         return self.get(key, None)
 
-    def get(self, key: str, default: Optional[str] = None, table_name: Optional[str] = None) -> Optional[str]:
-        if table_name is None:
-            table_name = self.portal_data_list.table_name
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        return self.raw_content.get(key, default)
 
-        if table_name is None:
-            raise ValueError("Cannot auto detect table name, please provide it .get(key, default, table_name)")
-
-        real_key = table_name + "::" + key
-
-        return self.raw_content.get(real_key, default)
-
-    def calculate_table_name(self) -> Optional[str]:
-        for key in self.raw_content:
-            if '::' in key:
-                return key.split('::', 1)[0]
-
-        return None
+    @property
+    def fields(self) -> Dict[str, Any]:
+        return {key: value for key, value in self.raw_content.items() if key not in ("recordId", "modId")}
 
     @property
     def record_id(self) -> Optional[str]:
@@ -179,27 +182,7 @@ class PortalData(BaseProxy):
     def mod_id(self) -> Optional[str]:
         return self.raw_content.get('modId', None)
 
-
-class PortalDataList(CacheIterator[PortalData]):
-
-    def __init__(self, portal_name: str, iterator: Iterator[Dict[str, Any]]) -> None:
-        self.portal_name: str = portal_name
-        super().__init__(iterator=(PortalData(raw_content=entry, portal_data_list=self) for entry in iterator))
-
-    def __getitem__(self, index: int) -> PortalData:
-        return super().__getitem__(index)
-
-    def __iter__(self) -> Iterator[PortalData]:
-        return super().__iter__()
-
-    @cached_property
-    def table_name(self):
-        first_element = next(self.__iter__(), None)
-        if first_element is not None:
-            return first_element.calculate_table_name()
-
-        return None
-
+PortalDataList = CacheIterator[PortalDataValue]
 
 @dataclass(frozen=True)
 class DataInfo(BaseProxy):
@@ -261,12 +244,9 @@ class Data(BaseProxy):
                 portal_data_info_list) if portal_data_info_list is not None else None
 
     @cached_property
-    def portal_data(self) -> Optional[Dict[str, PortalDataList]]:
-        portal_data: Optional[Dict[str, Any]] = self.raw_content.get('portalData', None)
-        return {
-            key: PortalDataList(portal_name=key, iterator=(item for item in value))
-            for key, value in portal_data.items()
-        } if portal_data is not None else None
+    def portal_data(self) -> Optional[PortalData]:
+        portal_data: Optional[Dict[str,Any]] = self.raw_content.get('portalData', None)
+        return PortalData(raw_content=portal_data) if portal_data is not None else None
 
 
 @dataclass(frozen=True)
@@ -293,16 +273,12 @@ class CommonSearchRecordsResult(BaseResult):
     layout: str
     client: object
 
+    def _non_errors_message_codes(self) -> List[int]:
+        return [FMErrorEnum.NO_ERROR.value, FMErrorEnum.NO_RECORDS_MATCH_REQUEST]
+
     @property
     def response(self):
         return CommonSearchRecordsResponseField(self.raw_content['response'])
-
-    @cached_property
-    def found_set(self):
-        if self.response.data_iterator is None:
-            return FoundSet(iter([]))
-
-        return FoundSet(records_iterator_from_common_search_result(self))
 
 
 @dataclass(frozen=True)
@@ -323,10 +299,6 @@ class FindResult(CommonSearchRecordsResult):
 @dataclass(frozen=True)
 class PaginatedRecordResult:
     pages: CacheIterator[Page]
-
-    @cached_property
-    def found_set(self):
-        return FoundSet(records_iterator_from_page_iterator(self.pages.__iter__()).__iter__())
 
 
 class GetRecordsPaginatedResult(PaginatedRecordResult):
@@ -682,96 +654,14 @@ class FileMakerErrorException(Exception):
 
 
 @dataclass(frozen=True)
-class Record(Data):
-    client: object
-    layout: str
-
-    def edit_record(self, check_mod_id: bool = False, **kwargs):
-        mod_id = self.mod_id if check_mod_id else None
-
-        from fmdata import FMClient
-        fm_client: FMClient = self.client
-
-        return fm_client.edit_record(
-            layout=self.layout,
-            record_id=self.record_id,
-            mod_id=mod_id,
-            **kwargs
-        )
-
-    def duplicate_record(self, **kwargs):
-        from fmdata import FMClient
-        fm_client: FMClient = self.client
-
-        return fm_client.duplicate_record(
-            layout=self.layout,
-            record_id=self.record_id,
-            **kwargs)
-
-    def delete_record(self, **kwargs):
-        from fmdata import FMClient
-        fm_client: FMClient = self.client
-
-        return fm_client.delete_record(
-            layout=self.layout,
-            record_id=self.record_id,
-            **kwargs)
-
-    @property
-    def portals(self) -> Optional[Dict[str, PortalDataList]]:
-        return self.portal_data if self.portal_data is not None else {}
-
-
-class FoundSet(CacheIterator[Record]):
-    def __init__(self, iterator: Iterator[Record]):
-        super().__init__(iterator)
-
-    def __getitem__(self, index: int) -> Record:
-        return super().__getitem__(index)
-
-    def __iter__(self) -> Iterator[Record]:
-        return super().__iter__()
-
-    def edit_records(self, check_mod_id: bool = False, limit: Optional[int] = None, **kwargs):
-        count = 0
-        for record in self:
-            if limit is not None and count >= limit:
-                break
-
-            record.edit_record(check_mod_id=check_mod_id, **kwargs)
-            count += 1
-
-    def delete_records(self, limit: Optional[int] = None, **kwargs):
-        count = 0
-        for record in self:
-            if limit is not None and count >= limit:
-                break
-
-            record.delete_record(**kwargs)
-            count += 1
-
-
-@dataclass(frozen=True)
 class Page:
     result: CommonSearchRecordsResult
 
-
 PageIterator = Iterator[Page]
 
+@dataclass(frozen=True)
+class PortalPage:
+    result: GetRecordResult
 
-def records_iterator_from_common_search_result(
-        result: CommonSearchRecordsResult,
-) -> Iterator[Record]:
-    for data_entry in result.response.data:
-        yield Record(
-            raw_content=data_entry.raw_content,
-            client=result.client,
-            layout=result.layout
-        )
+PortalPageIterator = Iterator[PortalPage]
 
-
-def records_iterator_from_page_iterator(page_iterator: PageIterator) -> Iterator[Record]:
-    for page in page_iterator:
-        yield from records_iterator_from_common_search_result(
-            result=page.result,
-        )
