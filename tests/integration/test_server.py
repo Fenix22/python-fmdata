@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import unittest
 
 from marshmallow import fields
@@ -90,43 +91,25 @@ class FMClientTestSuite(unittest.TestCase):
             print(i, item.pk, item.full_name)
 
     def test_mio2(self):
-        result_set = Student.objects.order_by("pk").find(full_name__raw="*").chunk_size(100).prefetch_portal("test_fmdata_class_1", limit=100)
+        result_set = (Student.objects.order_by("pk")
+                      .find(full_name__raw="*")
+                      .chunk_size(100)
+                      .prefetch_portal("test_fmdata_class_1", limit=100))
 
         for item in result_set:
-            print(item.pk, item.full_name, item.test_fmdata_class_1)
+            print(item.record_id, item.pk, item.full_name)
+            portals_class_1: PortalManager = item.test_fmdata_class_1.only_prefetched()
 
+            for portal in portals_class_1:
+                print(portal.record_id, portal.mod_id, portal.name, portal.description)
 
-        # with ThreadPoolExecutor(max_workers=10) as executor:
-        #     # Submit 10 tasks to the executor
-        #     futures = [executor.submit(self.action, i) for i in range(10)]
-        #
-        #     # Process results as they complete
-        #     for future in concurrent.futures.as_completed(futures):
-        #         result = future.result()
+                if int(portal.record_id) > 16:
+                    portal.delete()
+                else:
+                    portal.description = portal.description+"."
+                    portal.save()
 
-        print("----")
-
-        for item in result_set[0:1]:
-            portals_class_1: PortalManager = item.test_fmdata_class_1
-            portals_class_1 = portals_class_1.chunk_size(100)
-
-            if len(portals_class_1) == 0:
-                continue
-
-            portal = portals_class_1[0]
-            print(item.record_id, item.pk, item.full_name, portal.name)
-
-        result = fm_client.edit_record(
-            layout=STUDENT_LAYOUT,
-            record_id="34",
-            portal_data={
-                "test_fmdata_class_1": [
-                    {"test_fmdata_class_1::Name": "ELO", "test_fmdata_class_1::Description": "UEE"}]},
-            field_data={}
-        )
-
-        print(result.raw_content)
-        result.raise_exception_if_has_error()
+            item.test_fmdata_class_1.create(name="APA"+str(random.randint(1, 9999)), description="AIA")
 
 
 
