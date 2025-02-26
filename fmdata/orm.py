@@ -186,7 +186,6 @@ class PortalManager:
         return self._slice_start != 0 or self._slice_stop is not None
 
     def _set_new_slice(self, start, stop):
-        print("set new slice", start, stop)
         # Trick to manage multiple slicing before executing the query
         if stop is not None:
             if self._slice_stop is not None:
@@ -198,8 +197,6 @@ class PortalManager:
                 self._slice_start = min(self._slice_stop, self._slice_start + start)
             else:
                 self._slice_start = self._slice_start + start
-
-        print("setted", self._slice_start, self._slice_stop)
 
     def __getitem__(self, k):
         if isinstance(k, slice):
@@ -259,9 +256,6 @@ class PortalManager:
         portal.save()
 
     def _execute_query(self):
-        # TODO
-        print("execute portal query")
-
         offset = self._slice_start + 1
         limit = None
 
@@ -809,7 +803,6 @@ class ModelManager:
         return self._slice_start != 0 or self._slice_stop is not None
 
     def _set_new_slice(self, start, stop):
-        print("set new slice", start, stop)
         # Trick to manage multiple slicing before executing the query
         if stop is not None:
             if self._slice_stop is not None:
@@ -821,8 +814,6 @@ class ModelManager:
                 self._slice_start = min(self._slice_stop, self._slice_start + start)
             else:
                 self._slice_start = self._slice_start + start
-
-        print("setted", self._slice_start, self._slice_stop)
 
     def first(self):
         for obj in self[:1]:
@@ -853,9 +844,6 @@ class ModelManager:
         return query
 
     def _execute_query(self):
-        # TODO
-        print("execute query")
-
         offset = self._slice_start + 1
         limit = None
 
@@ -1061,7 +1049,6 @@ class ModelMetaclass(type):
 
         cls = super().__new__(mcls, name, bases, namespace)
 
-        # TODO probably cls.Meta is good enough
         base_schema_cls: Type[FileMakerSchema] = get_meta_attribute("base_schema", bases,
                                                                     namespace) or FileMakerSchema
         schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)

@@ -53,11 +53,10 @@ class Student(Model):
         client = fm_client
         layout = 'test_fmdata_student_layout'
 
-    # TODO required management?
-    pk = fields.Str(required=False, data_key="PrimaryKey")
-    full_name = fields.Str(required=False, data_key="FullName")
-    enrollment_date = fields.Date(required=False, data_key="EnrollmentDate")
-    GraduationYear = EmptyStringToNoneInteger(required=False, as_string=True, allow_none=True)
+    pk = fields.Str(data_key="PrimaryKey")
+    full_name = fields.Str(data_key="FullName")
+    enrollment_date = fields.Date(data_key="EnrollmentDate")
+    GraduationYear = EmptyStringToNoneInteger(as_string=True, allow_none=True)
 
     test_fmdata_class_1 = PortalField(model=ClassPortal, name="test_fmdata_class_1")
 
@@ -70,27 +69,12 @@ class FMClientTestSuite(unittest.TestCase):
             query=[{"PrimaryKey": "*"}]).raise_exception_if_has_error().found_set.delete_all_records()
         exam_layout.find(query=[{"PrimaryKey": "*"}]).raise_exception_if_has_error().found_set.delete_all_records()
 
-    # def test_mio(self):
-    #     # Create Students
-    #     #student = Student(record_id=53)
-    #     student = Student(full_name="Lorenzo", enrollment_date=datetime.date(2024,1,3), GraduationYear=2).save()
-    #
-    #     student.GraduationYear = 3
-    #     student.save()
-    #
-    #     student.refresh_from_db()
-    #     #student.delete()
-    #
-    #     print(student.record_id)
-    #     print(student.mod_id)
-    #     print(student.pk)
-    #     pass
     def action(self, i):
         result_set = Student.objects.order_by("pk").find(full_name__raw="*")
         for item in result_set:
             print(i, item.pk, item.full_name)
 
-    def test_mio2(self):
+    def test_0(self):
         result_set = (Student.objects.order_by("pk")
                       .find(full_name__raw="*")
                       .chunk_size(100)

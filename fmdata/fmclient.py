@@ -657,8 +657,6 @@ def page_generator(
     records_retrieved = 0
 
     while is_final_page is False:
-        # TODO
-        print("itero page generator", records_retrieved, offset, page_size, limit)
         # Calculate the limit for the next request
         if limit is None:
             # If the global limit is not defined we don't know how many records we have to retrieve
@@ -675,7 +673,6 @@ def page_generator(
 
             limit_for_current_request = min(page_size, remaining)
 
-        print("chiamo request", offset, limit_for_current_request)
         client_response = fn_get_response(
             layout=layout,
             offset=offset,
@@ -687,7 +684,7 @@ def page_generator(
                                            layout=layout)
 
         result.raise_exception_if_has_error()
-        print("result", result)
+
         if any(result.get_messages_iterator(search_codes=[FMErrorEnum.NO_RECORDS_MATCH_REQUEST])):
             response_entries_count = 0
             is_final_page = True
@@ -744,8 +741,6 @@ def portal_page_generator(
     records_retrieved = 0
 
     while is_final_page is False:
-        # TODO
-        print("itero page generator", records_retrieved, offset, page_size, limit)
         # Calculate the limit for the next request
         if limit is None:
             # If the global limit is not defined we don't know how many records we have to retrieve
@@ -762,8 +757,6 @@ def portal_page_generator(
 
             limit_for_current_request = min(page_size, remaining)
 
-        print("chiamo request", offset, limit_for_current_request)
-
         portals = {
             portal_name: SinglePortalInput(offset=offset, limit=limit_for_current_request)
         }
@@ -776,8 +769,6 @@ def portal_page_generator(
         )
 
         result.raise_exception_if_has_error()
-
-        print("result", result)
 
         response_record_count = len(result.response.data)
         if not response_record_count == 1:
