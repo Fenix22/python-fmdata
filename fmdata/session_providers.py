@@ -81,21 +81,16 @@ class ClarisCloudSessionProvider(SessionProvider):
     clarid_id_password: str = None
     data_sources: Optional[List[DataSourceProvider]] = None
 
-    try:
-        import pycognito
-        _has_pycognito = True
-    except ImportError:
-        _has_pycognito = False
-
-    if not _has_pycognito:
-        raise ImportError(
-            'Please install pycognito for Claris Cloud support. '
-        )
 
     def _get_cognito_token(self) -> str:
         """Use Pycognito library to authenticate with Amazon Cognito and retrieve FMID token."""
+        try:
+            import pycognito
+        except ImportError:
+            raise ImportError(
+                'Please install pycognito for Claris Cloud support. '
+            )
 
-        import pycognito
         user = pycognito.Cognito(user_pool_id=self.cognito_userpool_id,
                                  client_id=self.cognito_client_id,
                                  username=self.claris_id_name)
