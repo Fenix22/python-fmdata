@@ -110,6 +110,12 @@ class FMClientTestSuite(unittest.TestCase):
                     portal.save()
 
             item.test_fmdata_class_1.create(name="APA"+str(random.randint(1, 9999)), description="AIA")
+            item.full_name = item.full_name + "."
+
+            first_entry = item.test_fmdata_class_1.avoid_prefetch_cache().first()
+            if first_entry:
+                first_entry.description = first_entry.description + "|"
+            item.save(portals=([first_entry] if first_entry else []))
 
 
 

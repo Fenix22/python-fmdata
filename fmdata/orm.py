@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import date, datetime
 from functools import cached_property
-from typing import Type, Optional, List, Any, Iterator, Iterable
+from typing import Type, Optional, List, Any, Iterator, Iterable, Set
 
 from marshmallow import Schema, fields
 
@@ -17,7 +17,10 @@ FM_DATE_FORMAT = "%m/%d/%Y"
 FM_DATE_TIME_FORMAT = "%m/%d/%Y %I:%M:%S %p"
 
 
-def read_field_from_Meta(field_name, bases, namespace):
+def get_meta_attribute(field_name: str, bases: tuple, namespace: dict) -> Any:
+    """
+    Retrieve an attribute from the Meta class, looking up the inheritance chain.
+    """
     meta = namespace.get("Meta")
     field_value = getattr(meta, field_name, None)
     if field_value is None:
@@ -28,12 +31,45 @@ def read_field_from_Meta(field_name, bases, namespace):
                     break
     return field_value
 
-
 class FileMakerSchema(Schema):
     class Meta:
         datetimeformat = FM_DATE_TIME_FORMAT
         dateformat = FM_DATE_FORMAT
 
+
+# ---------------------------
+# Common Meta & Field Classes
+# ---------------------------
+
+@dataclasses.dataclass
+class ModelMetaField:
+    name: str
+    field: fields.Field
+
+    @cached_property
+    def filemaker_name(self) -> str:
+        return self.field.data_key or self.name
+
+@dataclasses.dataclass
+class ModelMetaPortalField:
+    name: str
+    field: PortalField
+
+    @cached_property
+    def filemaker_name(self) -> str:
+        return self.field.name or self.name
+
+@dataclasses.dataclass
+class ModelMeta:
+    fields: dict[str, ModelMetaField]
+    fm_fields: dict[str, ModelMetaField]
+    portal_fields: dict[str, ModelMetaPortalField]
+    fm_portal_fields: dict[str, ModelMetaPortalField]
+
+@dataclasses.dataclass
+class PortalField:
+    model: Type[PortalModel]
+    name: str
 
 @dataclasses.dataclass
 class PortalModelMeta:
@@ -59,22 +95,16 @@ class PortalMetaclass(type):
 
         cls = super().__new__(mcls, name, bases, namespace)
 
-        base_schema_cls: Type[FileMakerSchema] = read_field_from_Meta("base_schema", bases,
-                                                                      namespace) or FileMakerSchema
+        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute("base_schema", bases,
+                                                                    namespace) or FileMakerSchema
         schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
-        schema_config = read_field_from_Meta("schema_config", bases, namespace) or {}
+        schema_config = get_meta_attribute("schema_config", bases, namespace) or {}
 
         cls._meta = PortalModelMeta(fields=_meta_fields, fm_fields=_meta_fm_fields)
         cls.schema_class = schema_cls
         cls.schema_instance = schema_cls(**schema_config)
 
         return cls
-
-
-@dataclasses.dataclass
-class PortalField:
-    model: Type[PortalModel]
-    name: str
 
 
 class PortalManager:
@@ -142,6 +172,11 @@ class PortalManager:
 
     def all(self):
         return self
+
+    def first(self):
+        for obj in self[:1]:
+            return obj
+        return None
 
     def _assert_not_sliced(self):
         if self._is_sliced():
@@ -367,15 +402,10 @@ class PortalModel(metaclass=PortalMetaclass):
         elif not record_id_exists and force_update:
             raise ValueError("Cannot update a record without record_id.")
         elif record_id_exists and not force_insert:
-            patch = self._dump_fields()
 
-            if update_fields is not None:
-                patch = {key: value for key, value in patch.items()
-                         if key in update_fields}
-
-            if only_updated_fields:
-                patch = {key: value for key, value in patch.items()
-                         if self._meta.fm_fields[key].name in self._updated_fields}
+            patch = patch_from_model_or_portal(model_portal=self,
+                                       only_updated_fields=only_updated_fields,
+                                       update_fields=update_fields)
 
             used_mod_id = self.mod_id if check_mod_id else None
 
@@ -408,33 +438,6 @@ class PortalModel(metaclass=PortalMetaclass):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-
-@dataclasses.dataclass
-class ModelMetaField:
-    name: str
-    field: fields.Field
-
-    @cached_property
-    def filemaker_name(self) -> str:
-        return self.field.data_key or self.name
-
-
-@dataclasses.dataclass
-class ModelMetaPortalField:
-    name: str
-    field: PortalField
-
-    @cached_property
-    def filemaker_name(self) -> str:
-        return self.field.name or self.name
-
-
-@dataclasses.dataclass
-class ModelMeta:
-    fields: dict[str, ModelMetaField]
-    fm_fields: dict[str, ModelMetaField]
-    portal_fields: dict[str, ModelMetaPortalField]
-    fm_portal_fields: dict[str, ModelMetaPortalField]
 
 
 class Criteria:
@@ -557,6 +560,24 @@ class RawCriteria(FieldCriteria):
 
     def convert(self, schema: FileMakerSchema, fm_file_name, field_name) -> str:
         return self.value
+
+
+def add_portal_record_to_portal_data(portal_data: dict,
+                                     portal_name: str,
+                                     portal_record_id: str,
+                                     portal_mod_id: Optional[str],
+                                     portal_field_data: dict):
+    result_data = {
+        "recordId": portal_record_id,
+        **portal_field_data
+    }
+
+    if portal_mod_id is not None:
+        result_data["modId"] = portal_mod_id
+
+    portal_data.setdefault(portal_name, []).append(result_data)
+
+    return portal_data
 
 
 class ModelManager:
@@ -804,7 +825,9 @@ class ModelManager:
         print("setted", self._slice_start, self._slice_stop)
 
     def first(self):
-        return self[0]
+        for obj in self[:1]:
+            return obj
+        return None
 
     def update(self, check_mod_id: bool = False, **kwargs):
         self._fetch_all()
@@ -939,15 +962,18 @@ class ModelManager:
 
         return result
 
-    def _execute_create_record(self, field_data):
-        result = self._client.create_record(layout=self._layout, field_data=field_data)
+    def _execute_create_record(self, field_data, portals_data):
+        result = self._client.create_record(layout=self._layout, field_data=field_data, portal_data=portals_data)
         result.raise_exception_if_has_error()
 
         return result
 
-    def _execute_edit_record(self, record_id, mod_id, field_data):
-        result = self._client.edit_record(layout=self._layout, record_id=record_id, mod_id=mod_id,
-                                          field_data=field_data)
+    def _execute_edit_record(self, record_id, mod_id, field_data, portals_data):
+        result = self._client.edit_record(layout=self._layout,
+                                          record_id=record_id,
+                                          mod_id=mod_id,
+                                          field_data=field_data,
+                                          portal_data=portals_data)
         result.raise_exception_if_has_error()
 
         return result
@@ -964,16 +990,18 @@ class ModelManager:
 
     def _execute_edit_portal_record(self, record_id, portal_name, portal_field_data, portal_record_id, portal_mod_id):
 
-        portal_field_data['recordId'] = portal_record_id
-
-        if portal_mod_id is not None:
-            portal_field_data["modId"] = portal_mod_id
+        portal_data = add_portal_record_to_portal_data(
+            portal_data={},
+            portal_name=portal_name,
+            portal_record_id=portal_record_id,
+            portal_mod_id=portal_mod_id,
+            portal_field_data=portal_field_data)
 
         result = self._client.edit_record(
             record_id=record_id,
             layout=self._layout,
             field_data={},
-            portal_data={portal_name: [portal_field_data]})
+            portal_data=portal_data)
 
         result.raise_exception_if_has_error()
         return result
@@ -1034,10 +1062,10 @@ class ModelMetaclass(type):
         cls = super().__new__(mcls, name, bases, namespace)
 
         # TODO probably cls.Meta is good enough
-        base_schema_cls: Type[FileMakerSchema] = read_field_from_Meta("base_schema", bases,
-                                                                      namespace) or FileMakerSchema
+        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute("base_schema", bases,
+                                                                    namespace) or FileMakerSchema
         schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
-        schema_config = read_field_from_Meta("schema_config", bases, namespace) or {}
+        schema_config = get_meta_attribute("schema_config", bases, namespace) or {}
 
         cls._meta = ModelMeta(
             fields=_meta_fields,
@@ -1156,51 +1184,63 @@ class Model(metaclass=ModelMetaclass):
         self._load_fields_from_db()
         return self
 
-    def save(self, force_insert=False, force_update=False, update_fields=None, only_updated_fields=True,
+
+    def save(self,
+             force_insert=False,
+             force_update=False,
+             update_fields=None,
+             only_updated_fields=True,
              check_mod_id=False,
-             portals: Iterable[PortalModel] = None,
-             portals_to_delete: Iterable[PortalModel] = None,
-             portals_check_mod_id: Iterable[PortalModel] = None):
+             portals: Iterable[PortalModel | SavePortalsConfig] = ()):
 
         if force_insert and (force_update or update_fields):
             raise ValueError("Cannot force both insert and updating in model saving.")
 
         record_id_exists = self.record_id is not None
 
+        #Portal save
         portals_input: PortalsInput = {}
 
-        for portal in portals:
-            model: Model = portal._model
+        for config in portals:
+            if isinstance(config, PortalModel):
+                config = SavePortalsConfig(portal=config, delete=False, check_mod_id=False, update_fields=None, only_updated_fields=True)
+
+            portal = config.portal
+            model: Model = portal.model
 
             if not model == self:
                 raise ValueError("Portal model must be related to this record.")
 
-            # TODO to be finished
-            # For each portal, get portal name and portal data
+            used_mod_id = portal.mod_id if config.check_mod_id else None
+
+            patch = patch_from_model_or_portal(model_portal=portal,
+                                               only_updated_fields=config.only_updated_fields,
+                                               update_fields=config.update_fields)
+
+            add_portal_record_to_portal_data(portal_data=portals_input,
+                                             portal_name=portal._portal_name,
+                                             portal_record_id=portal.record_id,
+                                             portal_mod_id=used_mod_id,
+                                             portal_field_data=patch)
 
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
-            result = self.manager._execute_create_record(field_data=self._dump_fields())
+            result = self.objects._execute_create_record(field_data=self._dump_fields(), portals_data=portals_input)
 
             self.record_id = result.response.record_id
             self.mod_id = result.response.mod_id
         elif not record_id_exists and force_update:
             raise ValueError("Cannot update a record without record_id.")
         elif record_id_exists and not force_insert:
-            patch = self._dump_fields()
-
-            if update_fields is not None:
-                patch = {key: value for key, value in patch.items()
-                         if key in update_fields}
-
-            if only_updated_fields:
-                patch = {key: value for key, value in patch.items()
-                         if self._meta.fm_fields[key].name in self._updated_fields}
+            patch = patch_from_model_or_portal(model_portal=self,
+                                               only_updated_fields=only_updated_fields,
+                                               update_fields=update_fields,)
 
             used_mod_id = self.mod_id if check_mod_id else None
 
-            result = self.manager._execute_edit_record(record_id=self.record_id,
+            result = self.objects._execute_edit_record(record_id=self.record_id,
                                                        mod_id=used_mod_id,
-                                                       field_data=patch)
+                                                       field_data=patch,
+                                                       portals_data=portals_input)
 
             self.mod_id = result.response.mod_id
         else:
@@ -1219,6 +1259,24 @@ class Model(metaclass=ModelMetaclass):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+def patch_from_model_or_portal(model_portal: [PortalModel| Model], only_updated_fields, update_fields):
+    patch = model_portal._dump_fields()
+    if update_fields is not None:
+        patch = {key: value for key, value in patch.items()
+                 if key in update_fields}
+    if only_updated_fields:
+        patch = {key: value for key, value in patch.items()
+                 if model_portal._meta.fm_fields[key].name in model_portal._updated_fields}
+    return patch
+
+
+@dataclasses.dataclass
+class SavePortalsConfig:
+    portal: PortalModel
+    delete: bool
+    check_mod_id: bool
+    update_fields: Optional[Set[str]]
+    only_updated_fields: bool = True
 
 @dataclasses.dataclass
 class SearchCriteria:
