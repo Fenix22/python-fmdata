@@ -48,17 +48,20 @@ class ClassPortal(PortalModel):
     name = fields.Str(required=False, data_key="test_fmdata_class_1::Name")
     description = fields.Str(required=False, data_key="test_fmdata_class_1::Description")
 
-class Student(Model):
+class BaseBase():
+    full_name = fields.Str(data_key="FullName")
+
+class BaseStudent(BaseBase):
+    GraduationYear = EmptyStringToNoneInteger(as_string=True, allow_none=True)
+    test_fmdata_class_1 = PortalField(model=ClassPortal, name="test_fmdata_class_1")
+
+class Student(Model, BaseStudent):
     class Meta:
         client = fm_client
         layout = 'test_fmdata_student_layout'
 
     pk = fields.Str(data_key="PrimaryKey")
-    full_name = fields.Str(data_key="FullName")
     enrollment_date = fields.Date(data_key="EnrollmentDate")
-    GraduationYear = EmptyStringToNoneInteger(as_string=True, allow_none=True)
-
-    test_fmdata_class_1 = PortalField(model=ClassPortal, name="test_fmdata_class_1")
 
 class FMClientTestSuite(unittest.TestCase):
     def test_reset_db(self):
