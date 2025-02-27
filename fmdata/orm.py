@@ -586,7 +586,7 @@ class ModelManager:
         self._search_criteria: List[SearchCriteria] = []
         self._sort: List[SingleSortInput] = []
         self._scripts: ScriptsInput = {}
-        self._chunk_size = 0
+        self._chunk_size = None
         self._portals: PortalsInput = {}
         self._slice_start: int = 0
         self._slice_stop: Optional[int] = None
@@ -1077,15 +1077,9 @@ class ModelMetaclass(type):
         cls.schema_class = schema_cls
         cls.schema_instance = schema_cls(**schema_config)
 
-        manager = None
         if hasattr(cls, 'objects'):
             manager = cls.objects
-
-        if manager is None:
-            manager = ModelManager()
-            cls.objects = manager
-
-        manager._set_model_class(cls)
+            manager._set_model_class(cls)
 
         return cls
 
@@ -1097,7 +1091,7 @@ class Model(metaclass=ModelMetaclass):
         base_schema: FileMakerSchema = None
         schema_config: dict = None
 
-    objects: ModelManager
+    objects: ModelManager = ModelManager()
 
     def __init__(self, **kwargs):
         self.record_id: Optional[str] = kwargs.pop("record_id", None)
