@@ -341,6 +341,9 @@ class PortalModel(metaclass=PortalMetaclass):
 
         self._updated_fields = set()
 
+        for name in self._meta.fields.keys():
+            setattr(self, name, None)
+
         if _from_db:
             load_data = {key: _from_db[key] for key in _from_db.keys()
                          if key in self._meta.fm_fields}
@@ -1059,9 +1062,6 @@ class ModelMetaclass(type):
                 _meta_portal_fields[attr_name] = model_portal_meta_field
                 _meta_fm_portal_fields[model_portal_meta_field.filemaker_name] = model_portal_meta_field
 
-        for name in _meta_fields.keys():
-            setattr(cls, name, None)
-
         base_schema_cls: Type[FileMakerSchema] = get_meta_attribute("base_schema", bases,
                                                                     namespace) or FileMakerSchema
         schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
@@ -1107,6 +1107,9 @@ class Model(metaclass=ModelMetaclass):
             portal_manager._set_model(model=self, meta_portal=portal_field)
 
             setattr(self, portal_name, portal_manager)
+
+        for name in self._meta.fields.keys():
+            setattr(self, name, None)
 
         if _from_db:
             load_data = {key: _from_db[key] for key in _from_db.keys()
