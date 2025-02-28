@@ -161,17 +161,18 @@ class PortalManager:
             return
 
         # Try to use cache if the request is inside the prefetch data slice
-        prefetch_data_slice_start = prefetch_data.offset - 1
-        prefetch_data_slice_stop = prefetch_data_slice_start + prefetch_data.limit
+        if prefetch_data is not None:
+            prefetch_data_slice_start = prefetch_data.offset - 1
+            prefetch_data_slice_stop = prefetch_data_slice_start + prefetch_data.limit
 
-        search_slice_is_inside_prefetch_slice = self._slice_stop is not None and (
-                self._slice_start >= prefetch_data_slice_start and self._slice_stop <= prefetch_data_slice_stop)
+            search_slice_is_inside_prefetch_slice = self._slice_stop is not None and (
+                    self._slice_start >= prefetch_data_slice_start and self._slice_stop <= prefetch_data_slice_stop)
 
-        if not self._avoid_prefetch_cache and search_slice_is_inside_prefetch_slice:
-            slice_relative_start = self._slice_start - prefetch_data_slice_start
-            slice_relative_stop = self._slice_stop - prefetch_data_slice_start
-            self._result_cache = prefetch_data.cache[slice_relative_start:slice_relative_stop]
-            return
+            if not self._avoid_prefetch_cache and search_slice_is_inside_prefetch_slice:
+                slice_relative_start = self._slice_start - prefetch_data_slice_start
+                slice_relative_stop = self._slice_stop - prefetch_data_slice_start
+                self._result_cache = prefetch_data.cache[slice_relative_start:slice_relative_stop]
+                return
 
         # In worst case scenario, execute the query
         self._execute_query()
