@@ -275,11 +275,12 @@ class PortalManager:
         self._fetch_all()
         portal_records = [portal.record_id for portal in self._result_cache]
 
-        self._model.objects._execute_delete_portal_records(
-            record_id=self._model.record_id,
-            portal_name=self._meta_portal.filemaker_name,
-            portal_record_ids=portal_records,
-        )
+        if portal_records:
+            self._model.objects._execute_delete_portal_records(
+                record_id=self._model.record_id,
+                portal_name=self._meta_portal.filemaker_name,
+                portal_record_ids=portal_records,
+            )
 
 
     def _execute_query(self):
