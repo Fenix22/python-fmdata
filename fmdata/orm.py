@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import date, datetime
 from functools import cached_property
-from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict
+from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union
 
 from marshmallow import Schema, fields
 
@@ -353,13 +353,14 @@ class PortalModel(metaclass=PortalMetaclass):
             fields = schema_instance.load(data=load_data)
 
             for field_name, value in fields.items():
-                setattr(self, field_name, value)
-                self._updated_fields.discard(field_name)
+                super().__setattr__(field_name, value)
         else:
             for key, value in kwargs.items():
                 if key in self._meta.fields:
-                    setattr(self, key, value)
+                    super().__setattr__(key, value)
                     self._updated_fields.add(key)
+                else:
+                    raise AttributeError(f"Field '{key}' does not exist")
 
     def set_model(self, model: Model):
         self.model = model
@@ -1100,7 +1101,7 @@ class Model(metaclass=ModelMetaclass):
             portal_manager = PortalManager()
             portal_manager._set_model(model=self, meta_portal=portal_field)
 
-            setattr(self, portal_name, portal_manager)
+            super().__setattr__(portal_name, portal_manager)
 
         for name in self._meta.fields.keys():
             setattr(self, name, None)
@@ -1112,14 +1113,15 @@ class Model(metaclass=ModelMetaclass):
             schema_instance: Schema = self.__class__.schema_instance
             fields = schema_instance.load(data=load_data)
 
-            for field_name, portal_field in fields.items():
-                setattr(self, field_name, portal_field)
-                self._updated_fields.discard(field_name)
+            for field_name, value in fields.items():
+                super().__setattr__(field_name, value)
         else:
-            for key, portal_field in kwargs.items():
+            for key, value in kwargs.items():
                 if key in self._meta.fields:
-                    setattr(self, key, portal_field)
+                    super().__setattr__(key, value)
                     self._updated_fields.add(key)
+                else:
+                    raise AttributeError(f"Field '{key}' does not exist")
 
     def _set_portal_prefetch(self, portal_prefetch: dict[str, PortalPrefetchData]):
         self._portals_prefetch = portal_prefetch
@@ -1136,7 +1138,7 @@ class Model(metaclass=ModelMetaclass):
         fields = schema_instance.load(data=load_data)
 
         for field_name, value in fields.items():
-            setattr(self, field_name, value)
+            super().__setattr__(field_name, value)
             self._updated_fields.discard(field_name)
 
         self.record_id = record_data.record_id
@@ -1167,7 +1169,7 @@ class Model(metaclass=ModelMetaclass):
              update_fields=None,
              only_updated_fields=True,
              check_mod_id=False,
-             portals: Iterable[PortalModel | SavePortalsConfig] = ()):
+             portals: Iterable[Union[PortalModel,SavePortalsConfig]] = ()):
 
         if force_insert and (force_update or update_fields):
             raise ValueError("Cannot force both insert and updating in model saving.")
@@ -1237,7 +1239,7 @@ class Model(metaclass=ModelMetaclass):
             setattr(self, key, value)
 
 
-def patch_from_model_or_portal(model_portal: [PortalModel | Model], only_updated_fields, update_fields):
+def patch_from_model_or_portal(model_portal: Union[PortalModel, Model], only_updated_fields, update_fields):
     patch = model_portal._dump_fields()
     if update_fields is not None:
         patch = {key: value for key, value in patch.items()
