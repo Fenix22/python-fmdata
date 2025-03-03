@@ -406,10 +406,14 @@ class PortalModel(metaclass=PortalMetaclass):
         record_id_exists = self.record_id is not None
 
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
+            patch = patch_from_model_or_portal(model_portal=self,
+                                               only_updated_fields=only_updated_fields,
+                                               update_fields=None)
+
             self.model.objects._execute_create_portal_record(
                 record_id=self.model.record_id,
                 portal_name=self._portal_name,
-                portal_field_data=self._dump_fields(),
+                portal_field_data=patch,
             )
         elif not record_id_exists and force_update:
             raise ValueError("Cannot update a record without record_id.")
@@ -1220,7 +1224,11 @@ class Model(metaclass=ModelMetaclass):
                                              portal_field_data=patch)
 
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
-            result = self.objects._execute_create_record(field_data=self._dump_fields(), portals_data=portals_input)
+            patch = patch_from_model_or_portal(model_portal=self,
+                                               only_updated_fields=only_updated_fields,
+                                               update_fields=None)
+
+            result = self.objects._execute_create_record(field_data=patch, portals_data=portals_input)
 
             self.record_id = result.response.record_id
             self.mod_id = result.response.mod_id
