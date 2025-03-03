@@ -343,7 +343,7 @@ class PortalModel(metaclass=PortalMetaclass):
         self._updated_fields = set()
 
         for name in self._meta.fields.keys():
-            setattr(self, name, None)
+            super().__setattr__(name, None)
 
         if _from_db:
             load_data = {key: _from_db[key] for key in _from_db.keys()
@@ -1104,7 +1104,7 @@ class Model(metaclass=ModelMetaclass):
             super().__setattr__(portal_name, portal_manager)
 
         for name in self._meta.fields.keys():
-            setattr(self, name, None)
+            super().__setattr__(name, None)
 
         if _from_db:
             load_data = {key: _from_db[key] for key in _from_db.keys()
