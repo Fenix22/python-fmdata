@@ -271,6 +271,17 @@ class PortalManager:
                                                **kwargs)
         portal.save()
 
+    def delete(self):
+        self._fetch_all()
+        portal_records = [portal.record_id for portal in self._result_cache]
+
+        self._model.objects._execute_delete_portal_records(
+            record_id=self._model.record_id,
+            portal_name=self._meta_portal.filemaker_name,
+            portal_record_ids=portal_records,
+        )
+
+
     def _execute_query(self):
         offset = self._slice_start + 1
         limit = None
@@ -426,10 +437,10 @@ class PortalModel(metaclass=PortalMetaclass):
         if self.record_id is None:
             return
 
-        self.model.objects._execute_delete_portal_record(
+        self.model.objects._execute_delete_portal_records(
             record_id=self.model.record_id,
             portal_name=self._portal_name,
-            portal_record_id=self.record_id,
+            portal_record_ids=[self.record_id],
         )
 
         self.record_id = None
@@ -832,11 +843,11 @@ class ModelManager:
             record.update(**kwargs)
             record.save(check_mod_id=check_mod_id)
 
-    def delete(self, **kwargs):
+    def delete(self):
         self._fetch_all()
 
         for record in self:
-            record.delete(**kwargs)
+            record.delete()
 
     def _get_query(self):
         query = []
@@ -999,11 +1010,16 @@ class ModelManager:
         result.raise_exception_if_has_error()
         return result
 
-    def _execute_delete_portal_record(self, record_id, portal_name, portal_record_id):
+    def _execute_delete_portal_records(self, record_id, portal_name, portal_record_ids):
+
+        field_data = {
+            "deleteRelated": [portal_name + "." + portal_record_id for portal_record_id in portal_record_ids]
+        }
+
         result = self._client.edit_record(
             record_id=record_id,
             layout=self._layout,
-            field_data={"deleteRelated": portal_name + "." + portal_record_id}
+            field_data=field_data
         )
 
         result.raise_exception_if_has_error()
