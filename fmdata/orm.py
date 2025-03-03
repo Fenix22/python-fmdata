@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import date, datetime
 from functools import cached_property
-from typing import Type, Optional, List, Any, Iterator, Iterable, Set
+from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict
 
 from marshmallow import Schema, fields
 
@@ -364,15 +364,8 @@ class PortalModel(metaclass=PortalMetaclass):
     def set_model(self, model: Model):
         self.model = model
 
-    def to_dict(self):
-        result: result[str, Any] = {}
-
-        for field_name in self._meta.fields.keys():
-            value = getattr(self, field_name)
-            if value is not None:
-                result[field_name] = value
-
-        return result
+    def to_dict(self) -> Dict[str, Any]:
+        return {field: getattr(self, field) for field in self._meta.fields}
 
     def _dump_fields(self):
         schema_instance: Schema = self.__class__.schema_instance
@@ -1148,15 +1141,8 @@ class Model(metaclass=ModelMetaclass):
 
         self.record_id = record_data.record_id
 
-    def to_dict(self):
-        result: result[str, Any] = {}
-
-        for field_name in self._meta.fields.keys():
-            value = getattr(self, field_name)
-            if value is not None:
-                result[field_name] = value
-
-        return result
+    def to_dict(self) -> Dict[str, Any]:
+        return {field: getattr(self, field) for field in self._meta.fields}
 
     def _dump_fields(self):
         schema_instance: Schema = self.__class__.schema_instance
