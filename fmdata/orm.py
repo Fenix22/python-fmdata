@@ -289,7 +289,7 @@ class PortalManager:
             self._model.objects._execute_delete_portal_records(
                 record_id=self._model.record_id,
                 portal_name=self._meta_portal.filemaker_name,
-                portal_record_ids=portal,
+                portal_record_ids=[portal],
             )
 
 
