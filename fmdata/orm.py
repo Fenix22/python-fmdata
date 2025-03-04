@@ -1151,7 +1151,7 @@ class Model(metaclass=ModelMetaclass):
         if self.record_id is None:
             raise ValueError("Cannot refresh record that has not been saved yet.")
 
-        result = self.manager._execute_get_record(self.record_id)
+        result = self.objects._execute_get_record(self.record_id)
         record_data = result.response.data[0]
 
         load_data = {key: value for key, value in record_data.field_data.items() if key in self._meta.fm_fields}
@@ -1256,7 +1256,7 @@ class Model(metaclass=ModelMetaclass):
         if self.record_id is None:
             return
 
-        self.manager._execute_delete_record(self.record_id)
+        self.objects._execute_delete_record(self.record_id)
         self.record_id = None
 
     def update(self, **kwargs):
