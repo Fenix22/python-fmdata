@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import date, datetime
 from functools import cached_property
-from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union
+from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union, Tuple
 
 from marshmallow import Schema, fields
 
@@ -281,7 +281,6 @@ class PortalManager:
                 portal_name=self._meta_portal.filemaker_name,
                 portal_record_ids=portal_records,
             )
-
 
     def _execute_query(self):
         offset = self._slice_start + 1
@@ -644,6 +643,12 @@ class ModelManager:
     def all(self):
         return self._clone()
 
+    def create(self, **kwargs):
+        new_model = self._model_class(**kwargs)
+        new_model.save()
+
+        return new_model
+
     def _process_find_omit_kwargs(self, kwargs):
         criteria = {}
         for key, value in kwargs.items():
@@ -977,12 +982,18 @@ class ModelManager:
 
         return result
 
-    def _execute_edit_record(self, record_id, mod_id, field_data, portals_data):
+    def _execute_edit_record(self, record_id, mod_id, field_data, portals_data, portal_to_delete):
+        delete_related = self.get_delete_related_field_data(portals_to_delete=portal_to_delete)
+
+        if delete_related:
+            field_data.update(delete_related)
+
         result = self._client.edit_record(layout=self._layout,
                                           record_id=record_id,
                                           mod_id=mod_id,
                                           field_data=field_data,
                                           portal_data=portals_data)
+
         result.raise_exception_if_has_error()
 
         return result
@@ -1016,10 +1027,12 @@ class ModelManager:
         return result
 
     def _execute_delete_portal_records(self, record_id, portal_name, portal_record_ids):
+        portal_tuple = [(portal_name, portal_record_id) for portal_record_id in portal_record_ids]
 
-        field_data = {
-            "deleteRelated": [portal_name + "." + portal_record_id for portal_record_id in portal_record_ids]
-        }
+        field_data = self.get_delete_related_field_data(portals_to_delete=portal_tuple)
+
+        if not field_data:
+            return
 
         result = self._client.edit_record(
             record_id=record_id,
@@ -1029,6 +1042,25 @@ class ModelManager:
 
         result.raise_exception_if_has_error()
         return result
+
+    def get_delete_related_field_data(self, portals_to_delete: Iterable[Tuple[str, str]]):
+
+        related_records = []
+        for portal_name, portal_record_id in portals_to_delete:
+            related_records.append(portal_name + "." + portal_record_id)
+
+        if len(related_records) == 0:
+            field_data = {}
+        elif len(related_records) == 1:
+            field_data = {
+                "deleteRelated": related_records[0]
+            }
+        else:
+            field_data = {
+                "deleteRelated": related_records
+            }
+
+        return field_data
 
     def _execute_delete_record(self, record_id):
         result = self._client.delete_record(layout=self._layout, record_id=record_id)
@@ -1190,7 +1222,8 @@ class Model(metaclass=ModelMetaclass):
              update_fields=None,
              only_updated_fields=True,
              check_mod_id=False,
-             portals: Iterable[Union[PortalModel,SavePortalsConfig]] = ()):
+             portals: Iterable[Union[PortalModel, SavePortalsConfig]] = (),
+             portals_to_delete: Iterable[PortalModel] = ()):
 
         if force_insert and (force_update or update_fields):
             raise ValueError("Cannot force both insert and updating in model saving.")
@@ -1202,7 +1235,7 @@ class Model(metaclass=ModelMetaclass):
 
         for config in portals:
             if isinstance(config, PortalModel):
-                config = SavePortalsConfig(portal=config, delete=False, check_mod_id=False, update_fields=None,
+                config = SavePortalsConfig(portal=config, check_mod_id=False, update_fields=None,
                                            only_updated_fields=True)
 
             portal = config.portal
@@ -1223,6 +1256,7 @@ class Model(metaclass=ModelMetaclass):
                                              portal_mod_id=used_mod_id,
                                              portal_field_data=patch)
 
+        # Execute
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
             patch = patch_from_model_or_portal(model_portal=self,
                                                only_updated_fields=only_updated_fields,
@@ -1241,10 +1275,14 @@ class Model(metaclass=ModelMetaclass):
 
             used_mod_id = self.mod_id if check_mod_id else None
 
+            # Portal delete
+            portals_to_delete_record_ids = [(portal._portal_name, portal.record_id) for portal in portals_to_delete]
+
             result = self.objects._execute_edit_record(record_id=self.record_id,
                                                        mod_id=used_mod_id,
                                                        field_data=patch,
-                                                       portals_data=portals_input)
+                                                       portals_data=portals_input,
+                                                       portal_to_delete=portals_to_delete_record_ids)
 
             self.mod_id = result.response.mod_id
         else:
@@ -1278,7 +1316,6 @@ def patch_from_model_or_portal(model_portal: Union[PortalModel, Model], only_upd
 @dataclasses.dataclass
 class SavePortalsConfig:
     portal: PortalModel
-    delete: bool
     check_mod_id: bool
     update_fields: Optional[Set[str]]
     only_updated_fields: bool = True

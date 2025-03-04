@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import unittest
+from datetime import date
 
 from marshmallow import fields
 
@@ -44,16 +45,20 @@ class EmptyStringToNoneInteger(fields.Integer):
             return None
         return super()._deserialize(value, attr, data, **kwargs)
 
+
 class ClassPortal(PortalModel):
     name = fields.Str(required=False, data_key="test_fmdata_class_1::Name")
     description = fields.Str(required=False, data_key="test_fmdata_class_1::Description")
 
+
 class BaseBase():
     full_name = fields.Str(data_key="FullName")
+
 
 class BaseStudent(BaseBase):
     GraduationYear = EmptyStringToNoneInteger(as_string=True, allow_none=True)
     test_fmdata_class_1 = PortalField(model=ClassPortal, name="test_fmdata_class_1")
+
 
 class Student(Model, BaseStudent):
     class Meta:
@@ -62,6 +67,7 @@ class Student(Model, BaseStudent):
 
     pk = fields.Str(data_key="PrimaryKey")
     enrollment_date = fields.Date(data_key="EnrollmentDate")
+
 
 class FMClientTestSuite(unittest.TestCase):
     def test_reset_db(self):
@@ -84,27 +90,47 @@ class FMClientTestSuite(unittest.TestCase):
                       .prefetch_portal("test_fmdata_class_1", limit=100))
 
         for item in result_set:
-            print(item.record_id, item.pk, item.full_name)
+            print("item", item.record_id, item.pk, item.full_name)
             portals_class_1: PortalManager = item.test_fmdata_class_1.only_prefetched()
 
-            for portal in portals_class_1:
-                print(portal.record_id, portal.mod_id, portal.name, portal.description)
+            for index, portal in enumerate(portals_class_1):
+                print("portal", portal.record_id, portal.mod_id, portal.name, portal.description)
 
-                if int(portal.record_id) > 16:
+                if index > 5:
+                    print("delete portal")
                     portal.delete()
                 else:
-                    portal.description = portal.description+"."
+                    portal.description = portal.description + "."
                     portal.save()
 
-            item.test_fmdata_class_1.create(name="APA"+str(random.randint(1, 9999)), description="AIA")
+            random_int = random.randint(1, 9999)
+            item.test_fmdata_class_1.create(name="APA" + str(random_int), description="AIA")
             item.full_name = item.full_name + "."
 
             first_entry = item.test_fmdata_class_1.avoid_prefetch_cache().first()
-            if first_entry:
-                first_entry.description = first_entry.description + "|"
-            item.save(portals=([first_entry] if first_entry else []))
+            first_entry.description = first_entry.description + "|"
+            print("new portal:", first_entry.record_id, first_entry.mod_id, first_entry.name, first_entry.description)
 
+            item.save(portals=([first_entry]))
 
+        random_year = random.randint(2050, 999999)
+        for i in range(10):
+            student = Student.objects.create(full_name="Test" + str(i),
+                                             enrollment_date=date(2024, 5, 18),
+                                             GraduationYear=random_year, )
+
+            student.refresh_from_db()
+            print(student.pk, student.full_name)
+
+        all_ordered = Student.objects.find(GraduationYear=random_year).order_by("full_name").chunk_size(1000)
+
+        all_ordered[0:5].delete()
+
+        print(" ")
+        for item in all_ordered:
+            print(item.pk, item.full_name)
+
+        all_ordered.delete()
 
     def test_fill_db(self):
         # Create classes
