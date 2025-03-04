@@ -275,12 +275,23 @@ class PortalManager:
         self._fetch_all()
         portal_records = [portal.record_id for portal in self._result_cache]
 
-        if portal_records:
+        if not portal_records:
+            return
+
+        # TODO It seem that old filemaker version does not support multiple portal delete
+        # self._model.objects._execute_delete_portal_records(
+        #     record_id=self._model.record_id,
+        #     portal_name=self._meta_portal.filemaker_name,
+        #     portal_record_ids=portal_records,
+        # )
+
+        for portal in portal_records:
             self._model.objects._execute_delete_portal_records(
                 record_id=self._model.record_id,
                 portal_name=self._meta_portal.filemaker_name,
-                portal_record_ids=portal_records,
+                portal_record_ids=portal,
             )
+
 
     def _execute_query(self):
         offset = self._slice_start + 1
