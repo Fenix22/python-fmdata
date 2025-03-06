@@ -17,19 +17,21 @@ FM_DATE_FORMAT = "%m/%d/%Y"
 FM_DATE_TIME_FORMAT = "%m/%d/%Y %I:%M:%S %p"
 
 
-def get_meta_attribute(field_name: str, bases: tuple, namespace: dict) -> Any:
+def get_meta_attribute(cls, attrs_meta, attribute_name: str, default=None) -> Any:
     """
     Retrieve an attribute from the Meta class, looking up the inheritance chain.
     """
-    meta = namespace.get("Meta")
-    field_value = getattr(meta, field_name, None)
-    if field_value is None:
-        for base_ in bases:
-            if hasattr(base_, "Meta"):
-                field_value = getattr(base_.Meta, field_name, None)
-                if field_value is not None:
-                    break
-    return field_value
+    if attrs_meta:
+        if hasattr(attrs_meta, attribute_name):
+            return getattr(attrs_meta, attribute_name)
+
+    for base in cls.mro():
+        if hasattr(base, "_meta"):
+            base_meta = getattr(base, "_meta")
+            if base_meta and hasattr(base_meta, attribute_name):
+                return getattr(base_meta, attribute_name)
+
+    return default
 
 
 class FileMakerSchema(Schema):
@@ -64,6 +66,10 @@ class ModelMetaPortalField:
 
 @dataclasses.dataclass
 class ModelMeta:
+    client: FMClient
+    layout: str
+    base_schema: Type[FileMakerSchema]
+    schema_config: dict
     fields: dict[str, ModelMetaField]
     fm_fields: dict[str, ModelMetaField]
     portal_fields: dict[str, ModelMetaPortalField]
@@ -78,20 +84,25 @@ class PortalField:
 
 @dataclasses.dataclass
 class PortalModelMeta:
+    portal_name: str
+    base_schema: Type[FileMakerSchema]
+    schema_config: dict
     fields: dict[str, ModelMetaField]
     fm_fields: dict[str, ModelMetaField]
 
 
 class PortalMetaclass(type):
-    def __new__(mcls, name, bases, namespace):
+    def __new__(mcls, name, bases, attrs):
 
         # Also ensure initialization is only performed for subclasses of Model
         # (excluding Model class itself).
         parents = [b for b in bases if isinstance(b, PortalMetaclass)]
         if not parents:
-            return super().__new__(mcls, name, bases, namespace)
+            return super().__new__(mcls, name, bases, attrs)
 
-        cls = super().__new__(mcls, name, bases, namespace)
+        attrs_meta = attrs.pop("Meta", None)
+
+        cls = super().__new__(mcls, name, bases, attrs)
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
@@ -106,15 +117,23 @@ class PortalMetaclass(type):
                 _meta_fields[attr_name] = model_meta_field
                 _meta_fm_fields[model_meta_field.filemaker_name] = model_meta_field
 
-        for name in _meta_fields.keys():
-            setattr(cls, name, None)
+        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
+                                                                    attribute_name="base_schema") or FileMakerSchema
 
-        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute("base_schema", bases,
-                                                                    namespace) or FileMakerSchema
+        schema_config = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="schema_config") or {}
+
+        portal_name = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="portal_name")
+
+        cls._meta = PortalModelMeta(
+            base_schema=base_schema_cls,
+            schema_config=schema_config,
+            portal_name=portal_name,
+            fields=_meta_fields,
+            fm_fields=_meta_fm_fields
+        )
+
         schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
-        schema_config = get_meta_attribute("schema_config", bases, namespace) or {}
 
-        cls._meta = PortalModelMeta(fields=_meta_fields, fm_fields=_meta_fm_fields)
         cls.schema_class = schema_cls
         cls.schema_instance = schema_cls(**schema_config)
 
@@ -292,7 +311,6 @@ class PortalManager:
                 portal_record_ids=[portal],
             )
 
-
     def _execute_query(self):
         offset = self._slice_start + 1
         limit = None
@@ -306,8 +324,8 @@ class PortalManager:
                 raise ValueError(
                     "Cannot execute a query without a limit or chunk size. If you want to retrieve all records, use chunk_size(size) method in the query. Pay attention to the incoherence results it can cause!")
 
-        client: FMClient = self._model.Meta.client
-        layout = self._model.Meta.layout
+        client: FMClient = self._model._meta.client
+        layout = self._model._meta.layout
         record_id = self._model.record_id
 
         paged_result = portal_page_generator(
@@ -350,16 +368,18 @@ class PortalManager:
 
 
 class PortalModel(metaclass=PortalMetaclass):
-    class Meta:
-        base_schema: FileMakerSchema = None
-        schema_config: dict = None
-        portal_name: str = None
+    #Example of Meta
+    #
+    # class Meta:
+    #     base_schema: FileMakerSchema = None
+    #     schema_config: dict = None
+    #     portal_name: str = None
 
     def __init__(self, **kwargs):
         self.model: Optional[Model] = kwargs.pop("model", None)
         self.record_id: Optional[str] = kwargs.pop("record_id", None)
         self.mod_id: Optional[str] = kwargs.pop("mod_id", None)
-        self._portal_name: str = self.Meta.portal_name or kwargs.pop("portal_name")
+        self._portal_name: str = self._meta.portal_name or kwargs.pop("portal_name")
         _from_db: Optional[dict] = kwargs.pop("_from_db", None)
 
         self._updated_fields = set()
@@ -619,8 +639,8 @@ class ModelManager:
 
     def _set_model_class(self, model_class: Type[Model]):
         self._model_class = model_class
-        self._client: FMClient = model_class.Meta.client
-        self._layout: str = model_class.Meta.layout
+        self._client: FMClient = model_class._meta.client
+        self._layout: str = model_class._meta.layout
 
     def _clone(self):
         qs = ModelManager()
@@ -1088,15 +1108,16 @@ class PortalPrefetchData:
 
 
 class ModelMetaclass(type):
-    def __new__(mcls, name, bases, namespace):
-
+    def __new__(mcls, name, bases, attrs):
         # Also ensure initialization is only performed for subclasses of Model
         # (excluding Model class itself).
         parents = [b for b in bases if isinstance(b, ModelMetaclass)]
         if not parents:
-            return super().__new__(mcls, name, bases, namespace)
+            return super().__new__(mcls, name, bases, attrs)
 
-        cls = super().__new__(mcls, name, bases, namespace)
+        attrs_meta = attrs.pop("Meta", None)
+
+        cls = super().__new__(mcls, name, bases, attrs)
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
@@ -1121,35 +1142,48 @@ class ModelMetaclass(type):
                 _meta_portal_fields[attr_name] = model_portal_meta_field
                 _meta_fm_portal_fields[model_portal_meta_field.filemaker_name] = model_portal_meta_field
 
-        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute("base_schema", bases,
-                                                                    namespace) or FileMakerSchema
-        schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
-        schema_config = get_meta_attribute("schema_config", bases, namespace) or {}
+        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
+                                                                    attribute_name="base_schema") or FileMakerSchema
+
+        schema_config = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="schema_config") or {}
+
+        client: FMClient = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="client")
+        layout: str = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="layout")
+
+        base_manager: Type[ModelManager] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="base_manager") or ModelManager
 
         cls._meta = ModelMeta(
+            client=client,
+            layout=layout,
+            base_schema=base_schema_cls,
+            schema_config=schema_config,
             fields=_meta_fields,
             fm_fields=_meta_fm_fields,
             portal_fields=_meta_portal_fields,
             fm_portal_fields=_meta_fm_portal_fields
         )
 
+        schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
         cls.schema_class = schema_cls
         cls.schema_instance = schema_cls(**schema_config)
 
-        if hasattr(cls, 'objects'):
-            manager = cls.objects
-            manager._set_model_class(cls)
+        manager = base_manager()
+        manager._set_model_class(cls)
+        cls.objects = manager
 
         return cls
 
 
 class Model(metaclass=ModelMetaclass):
-    class Meta:
-        client: FMClient = None
-        layout: str = None
-        base_schema: FileMakerSchema = None
-        schema_config: dict = None
+    # Example of Meta:
+    #
+    # class Meta:
+    #     client: FMClient = None
+    #     layout: str = None
+    #     base_schema: FileMakerSchema = None
+    #     schema_config: dict = None
 
+    #TODO not used. Only for type hint
     objects: ModelManager = ModelManager()
 
     def __init__(self, **kwargs):

@@ -51,19 +51,21 @@ class ClassPortal(PortalModel):
     description = fields.Str(required=False, data_key="test_fmdata_class_1::Description")
 
 
-class BaseBase():
+class BaseBase(Model):
+    class Meta:
+        client = fm_client
+        layout = 'wrong'
     full_name = fields.Str(data_key="FullName")
 
 
 class BaseStudent(BaseBase):
+    class Meta:
+        layout = 'test_fmdata_student_layout'
     GraduationYear = EmptyStringToNoneInteger(as_string=True, allow_none=True)
     test_fmdata_class_1 = PortalField(model=ClassPortal, name="test_fmdata_class_1")
 
 
-class Student(Model, BaseStudent):
-    class Meta:
-        client = fm_client
-        layout = 'test_fmdata_student_layout'
+class Student(BaseStudent):
 
     pk = fields.Str(data_key="PrimaryKey")
     enrollment_date = fields.Date(data_key="EnrollmentDate")
