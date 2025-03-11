@@ -20,7 +20,8 @@ setup(
     packages=['fmdata'],
     include_package_data=True,
     install_requires=['requests>=2',
-                      'typing_extensions>=3'],
+                      'typing_extensions>=3',
+                      'marshmallow>=3'],
     extras_require={
         'cloud': ['pycognito>=0.1.4']
     },
