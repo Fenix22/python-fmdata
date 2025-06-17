@@ -306,7 +306,7 @@ Lorenzo De Siena (dev.lorenzo.desiena@gmail.com)
 
 We would like to thank:
 
-- **[EMBO](https://www.embo.org/)** for sponsoring this project
+- **[EMBO (European Molecular Biology Organization)](https://www.embo.org/)**
 - **[python-fmrest](https://github.com/davidhamann/python-fmrest)** for inspiration
 
 ## Links
