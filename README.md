@@ -230,6 +230,20 @@ for student in students:
     # Delete portal records
     student.classes.filter(name="Old Class").delete()
 ```
+## Error Handling
+
+```python
+from fmdata import FMErrorEnum
+from fmdata.results import FileMakerErrorException
+
+try:
+    student = Student.objects.get(pk="nonexistent")
+except FileMakerErrorException as e:
+    if e.error_code in (FMErrorEnum.INSUFFICIENT_PRIVILEGES, FMErrorEnum.FIELD_ACCESS_DENIED):
+        print("Insufficient privileges, please check your user permissions.")
+    else:
+        print(f"FileMaker error: {e.error_code} - {e.message}")
+```
 
 ## Low-Level API Access
 
@@ -240,40 +254,26 @@ For direct FileMaker Data API access:
 result = fm_client.create_record(
     layout="Students",
     field_data={"FullName": "Jane Doe", "EnrollmentDate": "01/15/2024"}
-)
+).raise_exception_if_has_error() # Raise FileMakerErrorException if response contains an error message
 
 # Get record by ID
-record = fm_client.get_record(layout="Students", record_id="123")
+record = fm_client.get_record(layout="Students", record_id="123").raise_exception_if_has_error()
 
 # Perform find
 results = fm_client.find(
     layout="Students",
     query=[{"FullName": "John*"}],
     sort=[{"fieldName": "FullName", "sortOrder": "ascend"}]
-)
+).raise_exception_if_has_error()
 
 # Execute scripts
 script_result = fm_client.perform_script(
     layout="Students",
     name="MyScript",
     param="parameter_value"
-)
+).raise_exception_if_has_error()
 ```
 
-## Error Handling
-
-```python
-from fmdata import FMErrorEnum
-from fmdata.results import FileMakerErrorException
-
-try:
-    student = Student.objects.get(pk="nonexistent")
-except FileMakerErrorException as e:
-    if e.error_code == FMErrorEnum.RECORD_NOT_FOUND:
-        print("Student not found")
-    else:
-        print(f"FileMaker error: {e.error_code} - {e.message}")
-```
 
 ## Configuration Options
 
