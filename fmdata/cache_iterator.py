@@ -32,10 +32,19 @@ class CacheIterator(Generic[T]):
                     break
 
         if isinstance(k, slice):
-            read_until(k.stop)
+            # Handle negative indices in slice by consuming entire iterator if needed
+            if (k.start is not None and k.start < 0) or (k.stop is None or k.stop < 0):
+                read_until(None)
+            else:
+                read_until(k.stop)
             return self.cached_values[k]
 
-        read_until(k)
+        # Handle negative indices for single index access
+        if k is None or k < 0:
+            read_until(None)
+        else:
+            read_until(k)
+
         return self.cached_values[k]
 
     def __repr__(self) -> str:
