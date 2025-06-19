@@ -1,5 +1,5 @@
 import itertools
-from typing import Iterator, List, TypeVar
+from typing import Iterator, List, TypeVar, Optional
 
 from typing_extensions import Generic
 
@@ -25,8 +25,8 @@ class CacheIterator(Generic[T]):
         return len(self.list)
 
     def __getitem__(self, k) -> T:
-        def read_until(index: int):
-            while index >= len(self.cached_values):
+        def read_until(index: Optional[int]):
+            while index is None or index >= len(self.cached_values):
                 next_item = next(self._iter, None)
                 if next_item is None:
                     break
