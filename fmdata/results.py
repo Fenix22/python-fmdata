@@ -584,7 +584,7 @@ class GetLayoutResponse(BaseProxy):
     def portal_meta_data(self) -> Optional[Dict[str, List[PortalFieldMetaData]]]:
         content: Optional[Dict[str, Any]] = self.raw_content.get('portalMetaData', None)
         return {
-            key: (PortalFieldMetaData(entry) for entry in value_list)
+            key: [PortalFieldMetaData(entry) for entry in value_list]
             for key, value_list in content.items()
         } if content is not None else None
 
@@ -592,7 +592,7 @@ class GetLayoutResponse(BaseProxy):
     def portal_meta_data_iterator(self) -> Optional[Dict[str, Iterator[PortalFieldMetaData]]]:
         content: Optional[Dict[str, Any]] = self.raw_content.get('portalMetaData', None)
         return {
-            key: [PortalFieldMetaData(entry) for entry in value_list]
+            key: (PortalFieldMetaData(entry) for entry in value_list)
             for key, value_list in content.items()
         } if content is not None else None
 
