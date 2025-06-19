@@ -160,7 +160,7 @@ from fmdata.session_providers import ClarisCloudSessionProvider
 
 session_provider = ClarisCloudSessionProvider(
     claris_id_name="your_claris_id",
-    clarid_id_password="your_password"
+    claris_id_password="your_password"
 )
 ```
 

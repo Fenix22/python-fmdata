@@ -78,7 +78,7 @@ class ClarisCloudSessionProvider(SessionProvider):
     cognito_userpool_id: str = 'us-west-2_NqkuZcXQY'
     cognito_client_id: str = '4l9rvl4mv5es1eep1qe97cautn'
     claris_id_name: str = None
-    clarid_id_password: str = None
+    claris_id_password: str = None
     data_sources: Optional[List[DataSourceProvider]] = None
 
 
@@ -95,7 +95,7 @@ class ClarisCloudSessionProvider(SessionProvider):
                                  client_id=self.cognito_client_id,
                                  username=self.claris_id_name)
 
-        user.authenticate(self.clarid_id_password)
+        user.authenticate(self.claris_id_password)
         return user.id_token
 
     def login(self, fm_client: FMClient, **kwargs) -> Optional[str]:
