@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from datetime import date, datetime
 from functools import cached_property
 from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union, Tuple
@@ -145,9 +146,9 @@ class PortalManager:
         self._chunk_size = None
         self._slice_start: int = 0
         self._slice_stop: Optional[int] = None
-        self._result_cache: Optional[CacheIterator[PortalModel]] = None
         self._avoid_prefetch_cache = False
         self._only_prefetched = False
+        self._result_cache: Optional[CacheIterator[PortalModel]] = None
 
     def _set_model(self, model: Model, meta_portal: ModelMetaPortalField):
         self._model = model
@@ -160,7 +161,6 @@ class PortalManager:
         qs._chunk_size = self._chunk_size
         qs._slice_start = self._slice_start
         qs._slice_stop = self._slice_stop
-        qs._result_cache = self._result_cache
         qs._avoid_prefetch_cache = self._avoid_prefetch_cache
         qs._only_prefetched = self._only_prefetched
 
@@ -180,14 +180,14 @@ class PortalManager:
             return
 
         # Try to use cache if the request is inside the prefetch data slice
-        if prefetch_data is not None:
+        if not self._avoid_prefetch_cache and prefetch_data is not None:
             prefetch_data_slice_start = prefetch_data.offset - 1
             prefetch_data_slice_stop = prefetch_data_slice_start + prefetch_data.limit
 
             search_slice_is_inside_prefetch_slice = self._slice_stop is not None and (
                     self._slice_start >= prefetch_data_slice_start and self._slice_stop <= prefetch_data_slice_stop)
 
-            if not self._avoid_prefetch_cache and search_slice_is_inside_prefetch_slice:
+            if search_slice_is_inside_prefetch_slice:
                 slice_relative_start = self._slice_start - prefetch_data_slice_start
                 slice_relative_stop = self._slice_stop - prefetch_data_slice_start
                 self._result_cache = prefetch_data.cache[slice_relative_start:slice_relative_stop]
@@ -239,11 +239,11 @@ class PortalManager:
             if k.stop is not None and k.stop <= (k.start or 0):
                 raise ValueError("Stop index must be greater than start index.")
 
-            if self._result_cache is not None:
-                return self._result_cache[k]
-
             new_qs = self._clone()
             new_qs._set_new_slice(k.start, k.stop)
+
+            if self._result_cache is not None:
+                new_qs._result_cache = CacheIterator(itertools.islice(self._result_cache.__iter__(), k.start, k.stop))
 
             # In case step is present, the list() force the execution of the query then use the list step to provide the result
             return list(new_qs)[::k.step] if k.step else new_qs
@@ -252,11 +252,14 @@ class PortalManager:
             if k < 0:
                 raise ValueError("Negative indexing is not supported.")
 
+            if self._result_cache is not None:
+                return self._result_cache[k]
+
             new_qs = self._clone()
             new_qs._set_new_slice(k, k + 1)
             new_qs._fetch_all()
 
-            return self._result_cache[0]
+            return new_qs._result_cache[0]
 
         else:
             raise TypeError(
@@ -344,8 +347,6 @@ class PortalManager:
             page_iterator=paged_result
         ))
 
-        return self._result_cache
-
     def portals_record_from_portal_page_iterator(self,
                                                  model: Model,
                                                  portal_fm_name: str,
@@ -368,7 +369,7 @@ class PortalManager:
 
 
 class PortalModel(metaclass=PortalMetaclass):
-    #Example of Meta
+    # Example of Meta
     #
     # class Meta:
     #     base_schema: FileMakerSchema = None
@@ -651,11 +652,10 @@ class ModelManager:
         qs._sort = self._sort[:]
         qs._scripts = self._scripts.copy()
         qs._chunk_size = self._chunk_size
-        qs._portals = self._portals
+        qs._portals = self._portals.copy()
         qs._slice_start = self._slice_start
         qs._slice_stop = self._slice_stop
         qs._response_layout = self._response_layout
-        qs._result_cache = self._result_cache
 
         return qs
 
@@ -831,11 +831,11 @@ class ModelManager:
             if k.stop is not None and k.stop <= (k.start or 0):
                 raise ValueError("Stop index must be greater than start index.")
 
-            if self._result_cache is not None:
-                return self._result_cache[k]
-
             new_qs = self._clone()
             new_qs._set_new_slice(k.start, k.stop)
+
+            if self._result_cache is not None:
+                new_qs._result_cache = CacheIterator(itertools.islice(self._result_cache.__iter__(), k.start, k.stop))
 
             # In case step is present, the list() force the execution of the query then use the list step to provide the result
             return list(new_qs)[::k.step] if k.step else new_qs
@@ -844,11 +844,14 @@ class ModelManager:
             if k < 0:
                 raise ValueError("Negative indexing is not supported.")
 
+            if self._result_cache is not None:
+                return self._result_cache[k]
+
             new_qs = self._clone()
             new_qs._set_new_slice(k, k + 1)
             new_qs._fetch_all()
 
-            return self._result_cache[0]
+            return new_qs._result_cache[0]
 
         else:
             raise TypeError(
@@ -944,7 +947,6 @@ class ModelManager:
         self._result_cache = CacheIterator(
             self.records_iterator_from_page_iterator(page_iterator=paged_result.pages.__iter__(),
                                                      portals_input=self._portals))
-        return self._result_cache
 
     def records_iterator_from_page_iterator(self,
                                             page_iterator: PageIterator,
@@ -1150,7 +1152,8 @@ class ModelMetaclass(type):
         client: FMClient = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="client")
         layout: str = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="layout")
 
-        base_manager: Type[ModelManager] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="base_manager") or ModelManager
+        base_manager: Type[ModelManager] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
+                                                              attribute_name="base_manager") or ModelManager
 
         cls._meta = ModelMeta(
             client=client,
@@ -1183,7 +1186,7 @@ class Model(metaclass=ModelMetaclass):
     #     base_schema: FileMakerSchema = None
     #     schema_config: dict = None
 
-    #TODO not used. Only for type hint
+    # TODO not used. Only for type hint
     objects: ModelManager = ModelManager()
 
     def __init__(self, **kwargs):

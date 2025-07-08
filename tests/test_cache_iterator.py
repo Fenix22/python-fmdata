@@ -138,14 +138,14 @@ class TestCacheIterator(unittest.TestCase):
         data = [1, 2, 3]
         cache_iter = CacheIterator(iter(data))
 
-        self.assertFalse(cache_iter.empty)
+        self.assertFalse(cache_iter.empty())
         self.assertEqual(cache_iter.cached_values, [1])  # Should consume first element
 
     def test_empty_property_empty_iterator(self):
         """Test empty property with empty iterator."""
         cache_iter = CacheIterator(iter([]))
 
-        self.assertTrue(cache_iter.empty)
+        self.assertTrue(cache_iter.empty())
         self.assertEqual(cache_iter.cached_values, [])
         self.assertTrue(cache_iter.cache_complete)
 
@@ -157,25 +157,10 @@ class TestCacheIterator(unittest.TestCase):
         # Consume some elements
         next(iter(cache_iter))
 
-        self.assertFalse(cache_iter.empty)
+        self.assertFalse(cache_iter.empty())
         # After consuming one element and checking empty, only 1 element should be cached
         self.assertEqual(len(cache_iter.cached_values), 1)
 
-    def test_list_property(self):
-        """Test list property."""
-        data = [1, 2, 3, 4, 5]
-        cache_iter = CacheIterator(iter(data))
-
-        # list property should force full consumption
-        result = cache_iter.list
-        self.assertEqual(result, data)
-        self.assertEqual(cache_iter.cached_values, data)
-        self.assertTrue(cache_iter.cache_complete)
-
-        # Subsequent calls should return the same cached list
-        result2 = cache_iter.list
-        self.assertEqual(result2, data)
-        self.assertIs(result, result2)  # Should be the same object
 
     def test_repr(self):
         """Test __repr__ method."""
@@ -204,7 +189,6 @@ class TestCacheIterator(unittest.TestCase):
         self.assertEqual(len(cache_iter), 0)
         self.assertTrue(cache_iter.empty)
         self.assertTrue(cache_iter.cache_complete)
-        self.assertEqual(cache_iter.list, [])
 
     def test_single_element_iterator(self):
         """Test CacheIterator with single element."""
@@ -212,9 +196,8 @@ class TestCacheIterator(unittest.TestCase):
 
         self.assertEqual(list(cache_iter), [42])
         self.assertEqual(len(cache_iter), 1)
-        self.assertFalse(cache_iter.empty)
+        self.assertFalse(cache_iter.empty())
         self.assertEqual(cache_iter[0], 42)
-        self.assertEqual(cache_iter.list, [42])
 
     def test_string_iterator(self):
         """Test CacheIterator with string iterator."""
@@ -279,7 +262,7 @@ class TestCacheIterator(unittest.TestCase):
 
         # Mix of different operations
         self.assertEqual(cache_iter[3], 3)
-        self.assertFalse(cache_iter.empty)
+        self.assertFalse(cache_iter.empty())
 
         partial_list = cache_iter[1:5]
         self.assertEqual(partial_list, [1, 2, 3, 4])

@@ -247,7 +247,7 @@ class FMClientTestSuite(unittest.TestCase):
 
         found_set = result.found_set
 
-        if not found_set.empty:
+        if not found_set.empty():
             found_set[0].delete_record()
 
         result = student_layout.create_record(
@@ -267,4 +267,4 @@ class FMClientTestSuite(unittest.TestCase):
         result.raise_exception_if_has_message(exclude_codes=[FMErrorEnum.NO_RECORDS_MATCH_REQUEST])
 
         found_set = result.found_set
-        self.assertTrue(found_set.empty)
+        self.assertTrue(found_set.empty())
