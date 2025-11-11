@@ -8,7 +8,7 @@ from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Uni
 
 from marshmallow import Schema, fields
 
-from fmdata import FMClient
+from fmdata import FMClient, fmd_fields
 from fmdata.cache_iterator import CacheIterator
 from fmdata.fmclient import portal_page_generator
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
@@ -116,7 +116,12 @@ class PortalMetaclass(type):
                 schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
-                _meta_fm_fields[model_meta_field.filemaker_name] = model_meta_field
+
+                attr_fm_name = model_meta_field.filemaker_name
+                _meta_fm_fields[attr_fm_name] = model_meta_field
+
+                if isinstance(attr_value, fmd_fields.FMFieldMixin):
+                    attr_value._field_name = attr_fm_name
 
         base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
                                                                     attribute_name="base_schema") or FileMakerSchema
@@ -992,10 +997,12 @@ class ModelManager:
         # Extract portal data from response
         portal_data_list: PortalDataList = response_portal_data.get(portal_fm_name, [])
         # Generate iterator from portal data
-        iterator = portal_model_iterator_from_portal_data(model=model,
-                                                          portal_name=portal_field.filemaker_name,
-                                                          portal_data_list=portal_data_list,
-                                                          portal_model_class=portal_model_class)
+        iterator = portal_model_iterator_from_portal_data(
+            model=model,
+            portal_name=portal_field.filemaker_name,
+            portal_data_list=portal_data_list,
+            portal_model_class=portal_model_class
+        )
 
         return PortalPrefetchData(
             limit=portal_input['limit'],
@@ -1123,6 +1130,7 @@ class ModelMetaclass(type):
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
+
         _meta_portal_fields: dict[str, ModelMetaPortalField] = {}
         _meta_fm_portal_fields: dict[str, ModelMetaPortalField] = {}
 
@@ -1136,7 +1144,12 @@ class ModelMetaclass(type):
                 schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
-                _meta_fm_fields[model_meta_field.filemaker_name] = model_meta_field
+
+                attr_fm_name = model_meta_field.filemaker_name
+                _meta_fm_fields[attr_fm_name] = model_meta_field
+
+                if isinstance(attr_value, fmd_fields.FMFieldMixin):
+                    attr_value._field_name = attr_fm_name
 
             if isinstance(attr_value, PortalField):
                 schema_portal_fields[attr_name] = attr_value
@@ -1349,6 +1362,19 @@ class Model(metaclass=ModelMetaclass):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+    def update_container(self, field_name: str, file):
+        field_meta = self._meta.fm_fields.get(field_name, None)
+
+        if field_meta is None:
+            raise ValueError(f"Field '{field_name}' does not exist.")
+
+        field = field_meta.field
+
+        if not isinstance(field, fmd_fields.Container):
+            raise ValueError(f"Field '{field_name}' is not a fmd_fields.Container.")
+
+        #TODO api call
+
 
 def patch_from_model_or_portal(model_portal: Union[PortalModel, Model], only_updated_fields, update_fields):
     patch = model_portal._dump_fields()
@@ -1375,13 +1401,17 @@ class SearchCriteria:
     is_omit: bool
 
 
-def portal_model_iterator_from_portal_data(model: Model, portal_data_list, portal_model_class: Type[PortalModel],
-                                           portal_name=None) -> \
-        Iterator[PortalModel]:
+def portal_model_iterator_from_portal_data(
+        model: Model,
+        portal_data_list,
+        portal_model_class: Type[PortalModel],
+        portal_name=None
+) -> Iterator[PortalModel]:
     for single_portal_data_value in portal_data_list:
         yield portal_model_class(
             model=model,
             portal_name=portal_name,
             record_id=single_portal_data_value.record_id,
             mod_id=single_portal_data_value.mod_id,
-            _from_db=single_portal_data_value.fields)
+            _from_db=single_portal_data_value.fields
+        )

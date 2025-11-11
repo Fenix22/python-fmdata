@@ -5,10 +5,8 @@ import random
 import unittest
 from datetime import date
 
-from marshmallow import fields
-
 import fmdata
-from fmdata import FMErrorEnum
+from fmdata import FMErrorEnum, fmd_fields, FMFieldType
 from fmdata.orm import Model, PortalField, PortalModel, PortalManager
 from fmdata.session_providers import UsernamePasswordSessionProvider
 from tests import env
@@ -39,36 +37,30 @@ exam_layout = fm_client
 student_exam_layout = fm_client
 
 
-class EmptyStringToNoneInteger(fields.Integer):
-    def _deserialize(self, value, attr, data, **kwargs):
-        if value == '':
-            return None
-        return super()._deserialize(value, attr, data, **kwargs)
-
-
 class ClassPortal(PortalModel):
-    name = fields.Str(required=False, data_key="test_fmdata_class_1::Name")
-    description = fields.Str(required=False, data_key="test_fmdata_class_1::Description")
+    name = fmd_fields.String(field_name="test_fmdata_class_1::Name", field_type=FMFieldType.Text)
+    description = fmd_fields.String(field_name="test_fmdata_class_1::Description", field_type=FMFieldType.Text)
 
 
 class BaseBase(Model):
     class Meta:
         client = fm_client
         layout = 'wrong'
-    full_name = fields.Str(data_key="FullName")
+
+    full_name = fmd_fields.String(field_name="FullName", field_type=FMFieldType.Text)
 
 
 class BaseStudent(BaseBase):
     class Meta:
         layout = 'test_fmdata_student_layout'
-    GraduationYear = EmptyStringToNoneInteger(as_string=True, allow_none=True)
+
+    GraduationYear = fmd_fields.Integer(field_type=FMFieldType.Number)
     test_fmdata_class_1 = PortalField(model=ClassPortal, name="test_fmdata_class_1")
 
 
 class Student(BaseStudent):
-
-    pk = fields.Str(data_key="PrimaryKey")
-    enrollment_date = fields.Date(data_key="EnrollmentDate")
+    pk = fmd_fields.String(field_name="PrimaryKey", field_type=FMFieldType.Text)
+    enrollment_date = fmd_fields.Date(field_name="EnrollmentDate", field_type=FMFieldType.Date)
 
 
 class FMClientTestSuite(unittest.TestCase):
@@ -116,13 +108,13 @@ class FMClientTestSuite(unittest.TestCase):
             item.save(portals=([first_entry]))
 
         random_year = random.randint(2050, 999999)
-        for i in range(10):
-            student = Student.objects.create(full_name="Test" + str(i),
+        for i in reversed(range(1, 11)):
+            student = Student.objects.create(full_name="Test" + str(f"{i:02d}"),
                                              enrollment_date=date(2024, 5, 18),
                                              GraduationYear=random_year, )
 
             student.refresh_from_db()
-            print(student.pk, student.full_name)
+            print(student.pk, student.full_name, student.enrollment_date)
 
         all_ordered = Student.objects.find(GraduationYear=random_year).order_by("full_name").chunk_size(1000)
 
