@@ -4,9 +4,8 @@ import json
 import logging
 import threading
 import time
-from dataclasses import dataclass
-from functools import wraps, cached_property
-from typing import List, Dict, Optional, Any, IO, Iterator
+from functools import wraps
+from typing import List, Dict, Optional, Any, IO, Iterator, Callable
 
 import requests
 
@@ -22,6 +21,12 @@ from fmdata.results import \
     GetScriptsResult, GetRecordsPaginatedResult, FindPaginatedResult, CommonSearchRecordsResult, Page, \
     DuplicateRecordResult, PortalPage
 from fmdata.utils import clean_none
+
+
+class LoginFailedException(Exception):
+
+    def __init__(self, msg) -> None:
+        super().__init__(msg)
 
 
 class LoginRetriedTooFastException(Exception):
@@ -124,11 +129,11 @@ class FMClient:
             self._session_invalid = False
             self.on_new_session()
 
-        except Exception:
+        except Exception as e:
             self._token = None
             self._session_invalid = True
 
-            raise
+            raise LoginFailedException("Login to FileMaker Data API failed. (Do you have correct credentials?)") from e
         finally:
             self._session_last_login_retry = time.time()
 
@@ -619,15 +624,19 @@ class FMClient:
             **kwargs
         )
 
-        return response.json()
+        response.raise_for_status()
+
+        parse_float = kwargs.pop('parse_float', str)
+        return response.json(parse_float=parse_float)
 
     def __repr__(self) -> str:
         return f"<FMClient logged_in={bool(not self._session_invalid)} token={self._token} database={self.database}>"
 
+
 def page_generator(
         client: FMClient,
         layout: str,
-        fn_get_response: callable = None,
+        fn_get_response: Callable[..., BaseResult] = None,
         offset: int = 1,
         page_size: Optional[int] = 100,
         limit: Optional[int] = 200,
@@ -656,7 +665,7 @@ def page_generator(
     is_final_page = False
     records_retrieved = 0
 
-    while is_final_page is False:
+    while not is_final_page:
         # Calculate the limit for the next request
         if limit is None:
             # If the global limit is not defined we don't know how many records we have to retrieve
@@ -698,7 +707,6 @@ def page_generator(
         # Update offset and retrived for the next page
         records_retrieved += response_entries_count
         offset += response_entries_count
-
 
 
 def cached_page_generator(
@@ -785,4 +793,3 @@ def portal_page_generator(
         # Update offset and retrived for the next page
         records_retrieved += response_entries_count
         offset += response_entries_count
-
