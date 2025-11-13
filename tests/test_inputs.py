@@ -120,8 +120,7 @@ class TestInputs(unittest.TestCase):
             {'fieldName': 'date', 'sortOrder': 'descend'}
         ]
         result = _sort_to_params(sort_input)
-        expected = json.dumps(sort_input)
-        self.assertEqual(result, expected)
+        self.assertEqual(result, sort_input)
 
     def test_portals_to_params_none(self):
         """Test _portals_to_params with None input."""

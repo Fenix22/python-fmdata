@@ -1,0 +1,6 @@
+Pay attention:
+if you use Float you can lose precision during reading both with Number and Text. (use Decimal or String if you need full precision)
+if you use DateTime, if you have timezone information, you will lose timezone information while writing to FMFieldType.DateTime. If you write to FMFieldType.Text it will write the full ISO rappresentation of the datetime, so no timezone information will be lost.
+if you use String -> FMFieldType.DateTime, the string has to be an ISO rappresentation. If it have timezone information, it will be lost.
+if you use Container -> To update the container value, use model.update_container(container_name, file) the model.refresh_from_db()
+if you use Bool -> set true_value=X, false_value=Y, to choose what to write in the field. Set truthy=[list of values considered true] and falsy=[list of values considered false] to choose what to consider true/false when reading from FM

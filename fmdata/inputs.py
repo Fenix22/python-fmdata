@@ -93,7 +93,7 @@ def _scripts_to_dict(scripts: ScriptsInput) -> Dict[str, str]:
 
 
 def _sort_to_params(sort: List[SingleSortInput]) -> Optional[str]:
-    return json.dumps(sort) if sort else None
+    return sort if sort else None
 
 
 def _portals_to_params(portals: PortalsInput, names_as_string: bool = False) -> Dict[str, Any]:

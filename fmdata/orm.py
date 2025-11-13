@@ -8,9 +8,10 @@ from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Uni
 
 from marshmallow import Schema, fields
 
-from fmdata import FMClient
+from fmdata import FMClient, fmd_fields, FMVersion
 from fmdata.cache_iterator import CacheIterator
-from fmdata.fmclient import portal_page_generator
+from fmdata.fmclient import portal_page_generator, fm_version_gte
+from fmdata.fmd_fields import usformat_date, usformat_datetime
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
 from fmdata.results import PageIterator, PortalData, PortalDataList, PortalPageIterator
 
@@ -116,7 +117,16 @@ class PortalMetaclass(type):
                 schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
-                _meta_fm_fields[model_meta_field.filemaker_name] = model_meta_field
+
+                field_fm_name = model_meta_field.filemaker_name
+                if field_fm_name in _meta_fm_fields:
+                    raise ValueError(
+                        f"Field with FileMaker name '{field_fm_name}' already exists in portal '{cls.__name__}'")
+
+                _meta_fm_fields[field_fm_name] = model_meta_field
+
+                if isinstance(attr_value, fmd_fields.FMFieldMixin):
+                    attr_value._field_name = field_fm_name
 
         base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
                                                                     attribute_name="base_schema") or FileMakerSchema
@@ -170,30 +180,15 @@ class PortalManager:
         if self._result_cache is not None:
             return
 
-        prefetch_data: PortalPrefetchData = self._model._portals_prefetch.get(self._meta_portal.name)
+        if not self._avoid_prefetch_cache:
+            prefetch_data: PortalPrefetchData = self._model._portals_prefetch.get(self._meta_portal.filemaker_name,
+                                                                                  None)
 
-        if self._only_prefetched:
-            if prefetch_data is None:
-                raise ValueError(
-                    "Cannot use only_prefetched() method without prefetching portal data: model.objects.prefetch_portals('portal_name')")
-            self._result_cache = prefetch_data.cache
-            return
-
-        # Try to use cache if the request is inside the prefetch data slice
-        if not self._avoid_prefetch_cache and prefetch_data is not None:
-            prefetch_data_slice_start = prefetch_data.offset - 1
-            prefetch_data_slice_stop = prefetch_data_slice_start + prefetch_data.limit
-
-            search_slice_is_inside_prefetch_slice = self._slice_stop is not None and (
-                    self._slice_start >= prefetch_data_slice_start and self._slice_stop <= prefetch_data_slice_stop)
-
-            if search_slice_is_inside_prefetch_slice:
-                slice_relative_start = self._slice_start - prefetch_data_slice_start
-                slice_relative_stop = self._slice_stop - prefetch_data_slice_start
-                self._result_cache = prefetch_data.cache[slice_relative_start:slice_relative_stop]
+            if prefetch_data is not None:
+                self._result_cache = prefetch_data.cache[self._slice_start:self._slice_stop]
                 return
 
-        # In worst case scenario, execute the query
+        # In the worst scenario, execute the query
         self._execute_query()
 
     def __len__(self) -> int:
@@ -274,6 +269,7 @@ class PortalManager:
         new_qs._avoid_prefetch_cache = avoid
         return new_qs
 
+    #TODO remove
     def only_prefetched(self):
         self._assert_not_sliced()
 
@@ -293,26 +289,17 @@ class PortalManager:
                                                **kwargs)
         portal.save()
 
+        # We cannot return it because it has no record_id yet so is useless and dangerous!
+        # TODO in new versions of filemaker it could be possible to return it with record_id
+
     def delete(self):
         self._fetch_all()
-        portal_records = [portal.record_id for portal in self._result_cache]
+        portal_records = [portal for portal in self._result_cache]
 
         if not portal_records:
             return
 
-        # TODO It seem that old filemaker version does not support multiple portal delete
-        # self._model.objects._execute_delete_portal_records(
-        #     record_id=self._model.record_id,
-        #     portal_name=self._meta_portal.filemaker_name,
-        #     portal_record_ids=portal_records,
-        # )
-
-        for portal in portal_records:
-            self._model.objects._execute_delete_portal_records(
-                record_id=self._model.record_id,
-                portal_name=self._meta_portal.filemaker_name,
-                portal_record_ids=[portal],
-            )
+        self._model.save(force_update=True, update_fields=[], portals_to_delete=portal_records)
 
     def _execute_query(self):
         offset = self._slice_start + 1
@@ -324,8 +311,9 @@ class PortalManager:
         chunk_size = self._chunk_size
         if chunk_size is None or chunk_size == 0:
             if limit is None:
+                # TODO modify both, also message
                 raise ValueError(
-                    "Cannot execute a query without a limit or chunk size. If you want to retrieve all records, use chunk_size(size) method in the query. Pay attention to the incoherence results it can cause!")
+                    "Cannot execute a query without a limit or chunk size. If you want to retrieve all records, use [0:biiiiiglimit]. In alternative use chunk_size(size) in the query paying attention to the incoherence results it can cause!")
 
         client: FMClient = self._model._meta.client
         layout = self._model._meta.layout
@@ -437,7 +425,7 @@ class PortalModel(metaclass=PortalMetaclass):
         record_id_exists = self.record_id is not None
 
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
-            patch = patch_from_model_or_portal(model_portal=self,
+            patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
                                                update_fields=None)
 
@@ -450,7 +438,7 @@ class PortalModel(metaclass=PortalMetaclass):
             raise ValueError("Cannot update a record without record_id.")
         elif record_id_exists and not force_insert:
 
-            patch = patch_from_model_or_portal(model_portal=self,
+            patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
                                                update_fields=update_fields)
 
@@ -469,6 +457,7 @@ class PortalModel(metaclass=PortalMetaclass):
 
         return self
 
+    #TODO test delete form portals
     def delete(self):
         if self.record_id is None:
             return
@@ -552,6 +541,7 @@ class Criteria:
         if value is None:
             raise ValueError("Value cannot be None, use FMCriteria.empty() or FMCriteria.blank() instead.")
 
+        #TODO we probably need to use the serializers
         if isinstance(value, str):
             ret_value = value
         elif isinstance(value, int):
@@ -561,9 +551,9 @@ class Criteria:
         elif isinstance(value, bool):
             ret_value = "1" if value else "0"
         elif isinstance(value, date):
-            ret_value = value.strftime(FM_DATE_FORMAT)
+            ret_value= usformat_date(value)
         elif isinstance(value, datetime):
-            ret_value = value.strftime(FM_DATE_TIME_FORMAT)
+            ret_value = usformat_datetime(value)
         else:
             raise ValueError(f"Unsupported value type {type(value)}")
 
@@ -614,10 +604,11 @@ def add_portal_record_to_portal_data(portal_data: dict,
                                      portal_mod_id: Optional[str],
                                      portal_field_data: dict):
     result_data = {
-        "recordId": portal_record_id,
         **portal_field_data
     }
 
+    if portal_record_id is not None:
+        result_data["recordId"] = portal_record_id
     if portal_mod_id is not None:
         result_data["modId"] = portal_mod_id
 
@@ -680,6 +671,7 @@ class ModelManager:
 
         return new_model
 
+    #TODO test with other criteria
     def _process_find_omit_kwargs(self, kwargs):
         criteria = {}
         for key, value in kwargs.items():
@@ -790,12 +782,16 @@ class ModelManager:
         new_qs = self._clone()
 
         # Retrive meta field from portal name
-        portal_field = self._model_class._meta.portal_fields[portal]
+        portal_field = self._model_class._meta.portal_fields.get(portal, None)
+        if portal_field is None:
+            raise AttributeError(f"Portal '{portal}' does not exist in model '{self._model_class.__name__}'")
+
         portal_fm_name = portal_field.filemaker_name
 
         new_qs._portals[portal_fm_name] = SinglePortalInput(offset=offset, limit=limit)
         return new_qs
 
+    #TODO test with response layout and scripts
     def response_layout(self, response_layout):
         self._assert_not_sliced()
 
@@ -914,12 +910,13 @@ class ModelManager:
         if chunk_size is None or chunk_size == 0:
             if limit is None:
                 raise ValueError(
-                    "Cannot execute a query without a limit or chunk size. If you want to retrieve all records, use chunk_size(size) method in the query. Pay attention to the incoherence results it can cause!")
+                    "Cannot execute a query without a limit or chunk size. If you want to retrieve all records, use [:abiglimit]. In alternative use chunk_size(size) in the query paying attention to the incoherence results it can cause!")
 
         sort = None if len(self._sort) == 0 else self._sort
         script = None if len(self._scripts) == 0 else self._scripts
 
         # Get records in case of no search (find/omit) criteria
+        #TODO test add simple search on model
         if len(self._search_criteria) == 0:
             paged_result = self._client.get_records_paginated(
                 layout=self._layout,
@@ -992,10 +989,12 @@ class ModelManager:
         # Extract portal data from response
         portal_data_list: PortalDataList = response_portal_data.get(portal_fm_name, [])
         # Generate iterator from portal data
-        iterator = portal_model_iterator_from_portal_data(model=model,
-                                                          portal_name=portal_field.filemaker_name,
-                                                          portal_data_list=portal_data_list,
-                                                          portal_model_class=portal_model_class)
+        iterator = portal_model_iterator_from_portal_data(
+            model=model,
+            portal_name=portal_field.filemaker_name,
+            portal_data_list=portal_data_list,
+            portal_model_class=portal_model_class
+        )
 
         return PortalPrefetchData(
             limit=portal_input['limit'],
@@ -1015,19 +1014,54 @@ class ModelManager:
 
         return result
 
-    def _execute_edit_record(self, record_id, mod_id, field_data, portals_data, portal_to_delete):
-        delete_related = self.get_delete_related_field_data(portals_to_delete=portal_to_delete)
+    def _execute_edit_record(self, record_id, mod_id, field_data, portals_data, portals_to_delete):
 
-        if delete_related:
-            field_data.update(delete_related)
+        len_delete_related = len(portals_to_delete)
+        len_portal_data = len(portals_data)
+        len_field_data = len(field_data)
 
-        result = self._client.edit_record(layout=self._layout,
-                                          record_id=record_id,
-                                          mod_id=mod_id,
-                                          field_data=field_data,
-                                          portal_data=portals_data)
+        # If no change are required on model, and no change are required on portals
+        if len_field_data + len_portal_data + len_delete_related == 0:
+            return None
 
-        result.raise_exception_if_has_error()
+        result = None
+        # In FM 18 and later, we can delete multiple portal records in a single request
+        if fm_version_gte(self._client, FMVersion.FM_18):
+            delete_related_portal_records = self.get_delete_related_field_data(portals_to_delete=portals_to_delete)
+
+            if delete_related_portal_records:
+                field_data.update(delete_related_portal_records)
+
+            result = self._client.edit_record(
+                layout=self._layout,
+                record_id=record_id,
+                mod_id=mod_id,
+                field_data=field_data,
+                portal_data=portals_data)
+        else:
+            # We first do the save of the changes on the model + new portals
+
+            if len_field_data + len_portal_data != 0:
+                result = self._client.edit_record(
+                    layout=self._layout,
+                    record_id=record_id,
+                    mod_id=mod_id,
+                    field_data=field_data,
+                    portal_data=portals_data)
+
+                result.raise_exception_if_has_error()
+
+            for portal_info in portals_to_delete:
+                field_data = self.get_delete_related_field_data(portals_to_delete=[portal_info])
+
+                result = self._client.edit_record(
+                    layout=self._layout,
+                    record_id=record_id,
+                    mod_id=mod_id,
+                    field_data=field_data,
+                    portal_data=portals_data)
+
+                result.raise_exception_if_has_error()
 
         return result
 
@@ -1043,6 +1077,7 @@ class ModelManager:
 
     def _execute_edit_portal_record(self, record_id, portal_name, portal_field_data, portal_record_id, portal_mod_id):
 
+        #TODO BUG for filemaker 17
         portal_data = add_portal_record_to_portal_data(
             portal_data={},
             portal_name=portal_name,
@@ -1059,6 +1094,7 @@ class ModelManager:
         result.raise_exception_if_has_error()
         return result
 
+    #TODO test on portal.delete()
     def _execute_delete_portal_records(self, record_id, portal_name, portal_record_ids):
         portal_tuple = [(portal_name, portal_record_id) for portal_record_id in portal_record_ids]
 
@@ -1076,7 +1112,7 @@ class ModelManager:
         result.raise_exception_if_has_error()
         return result
 
-    def get_delete_related_field_data(self, portals_to_delete: Iterable[Tuple[str, str]]):
+    def get_delete_related_field_data(self, portals_to_delete: Iterable[Tuple[str, str]]) -> Dict[str, Any]:
 
         related_records = []
         for portal_name, portal_record_id in portals_to_delete:
@@ -1097,6 +1133,19 @@ class ModelManager:
 
     def _execute_delete_record(self, record_id):
         result = self._client.delete_record(layout=self._layout, record_id=record_id)
+        result.raise_exception_if_has_error()
+
+        return result
+
+    def _execute_upload_container(self, record_id, field_name, field_repetition, file):
+        result = self._client.upload_container(
+            layout=self._layout,
+            record_id=record_id,
+            field_name=field_name,
+            field_repetition=field_repetition,
+            file=file
+        )
+
         result.raise_exception_if_has_error()
 
         return result
@@ -1123,6 +1172,7 @@ class ModelMetaclass(type):
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
+
         _meta_portal_fields: dict[str, ModelMetaPortalField] = {}
         _meta_fm_portal_fields: dict[str, ModelMetaPortalField] = {}
 
@@ -1136,13 +1186,27 @@ class ModelMetaclass(type):
                 schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
-                _meta_fm_fields[model_meta_field.filemaker_name] = model_meta_field
+
+                field_fm_name = model_meta_field.filemaker_name
+                if field_fm_name in _meta_fm_fields:
+                    raise ValueError(
+                        f"Field with FileMaker name '{field_fm_name}' already exists in model '{cls.__name__}'")
+
+                _meta_fm_fields[field_fm_name] = model_meta_field
+
+                if isinstance(attr_value, fmd_fields.FMFieldMixin):
+                    attr_value._field_name = field_fm_name
 
             if isinstance(attr_value, PortalField):
                 schema_portal_fields[attr_name] = attr_value
                 model_portal_meta_field = ModelMetaPortalField(name=attr_name, field=attr_value)
                 _meta_portal_fields[attr_name] = model_portal_meta_field
-                _meta_fm_portal_fields[model_portal_meta_field.filemaker_name] = model_portal_meta_field
+
+                portal_fm_name = model_portal_meta_field.filemaker_name
+                if portal_fm_name in _meta_fm_portal_fields:
+                    raise ValueError(
+                        f"Portal field with FileMaker name '{portal_fm_name}' already exists in model '{cls.__name__}'")
+                _meta_fm_portal_fields[portal_fm_name] = model_portal_meta_field
 
         base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
                                                                     attribute_name="base_schema") or FileMakerSchema
@@ -1186,7 +1250,7 @@ class Model(metaclass=ModelMetaclass):
     #     base_schema: FileMakerSchema = None
     #     schema_config: dict = None
 
-    # TODO not used. Only for type hint
+    # Only for type hint #TODO initialization is needed for real?
     objects: ModelManager = ModelManager()
 
     def __init__(self, **kwargs):
@@ -1294,7 +1358,7 @@ class Model(metaclass=ModelMetaclass):
 
             used_mod_id = portal.mod_id if config.check_mod_id else None
 
-            patch = patch_from_model_or_portal(model_portal=portal,
+            patch = patch_from_model_or_portal(model_or_portal=portal,
                                                only_updated_fields=config.only_updated_fields,
                                                update_fields=config.update_fields)
 
@@ -1306,7 +1370,7 @@ class Model(metaclass=ModelMetaclass):
 
         # Execute
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
-            patch = patch_from_model_or_portal(model_portal=self,
+            patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
                                                update_fields=None)
 
@@ -1317,7 +1381,7 @@ class Model(metaclass=ModelMetaclass):
         elif not record_id_exists and force_update:
             raise ValueError("Cannot update a record without record_id.")
         elif record_id_exists and not force_insert:
-            patch = patch_from_model_or_portal(model_portal=self,
+            patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
                                                update_fields=update_fields, )
 
@@ -1330,9 +1394,10 @@ class Model(metaclass=ModelMetaclass):
                                                        mod_id=used_mod_id,
                                                        field_data=patch,
                                                        portals_data=portals_input,
-                                                       portal_to_delete=portals_to_delete_record_ids)
+                                                       portals_to_delete=portals_to_delete_record_ids)
 
-            self.mod_id = result.response.mod_id
+            if result is not None:
+                self.mod_id = result.response.mod_id
         else:
             raise ValueError("Impossible case")
 
@@ -1349,15 +1414,36 @@ class Model(metaclass=ModelMetaclass):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+    def update_container(self, field_name: str, file):
+        if self.record_id is None:
+            raise ValueError("Cannot update a record without record_id.")
 
-def patch_from_model_or_portal(model_portal: Union[PortalModel, Model], only_updated_fields, update_fields):
-    patch = model_portal._dump_fields()
+        field_meta = self._meta.fm_fields.get(field_name, None)
+
+        if field_meta is None:
+            raise ValueError(f"Field '{field_name}' does not exist.")
+
+        field = field_meta.field
+
+        if not isinstance(field, fmd_fields.Container):
+            raise ValueError(f"Field '{field_name}' is not a fmd_fields.Container.")
+
+        self.objects._execute_upload_container(
+            record_id=self.record_id,
+            field_name=field_meta.filemaker_name,
+            field_repetition=field._repetition_number,
+            file=file
+        )
+
+
+def patch_from_model_or_portal(model_or_portal: Union[PortalModel, Model], only_updated_fields, update_fields):
+    patch = model_or_portal._dump_fields()
     if update_fields is not None:
         patch = {key: value for key, value in patch.items()
                  if key in update_fields}
     if only_updated_fields:
         patch = {key: value for key, value in patch.items()
-                 if model_portal._meta.fm_fields[key].name in model_portal._updated_fields}
+                 if model_or_portal._meta.fm_fields[key].name in model_or_portal._updated_fields}
     return patch
 
 
@@ -1375,13 +1461,17 @@ class SearchCriteria:
     is_omit: bool
 
 
-def portal_model_iterator_from_portal_data(model: Model, portal_data_list, portal_model_class: Type[PortalModel],
-                                           portal_name=None) -> \
-        Iterator[PortalModel]:
+def portal_model_iterator_from_portal_data(
+        model: Model,
+        portal_data_list,
+        portal_model_class: Type[PortalModel],
+        portal_name=None
+) -> Iterator[PortalModel]:
     for single_portal_data_value in portal_data_list:
         yield portal_model_class(
             model=model,
             portal_name=portal_name,
             record_id=single_portal_data_value.record_id,
             mod_id=single_portal_data_value.mod_id,
-            _from_db=single_portal_data_value.fields)
+            _from_db=single_portal_data_value.fields
+        )
