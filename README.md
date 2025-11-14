@@ -217,7 +217,7 @@ for student in students:
     classes = student.classes.only_prefetched() 
 
     # Or force to fetch fresh portal data
-    classes = student.classes.avoid_prefetch_cache() 
+    classes = student.classes.ignore_prefetched() 
 
     # Create new portal records
     student.classes.create(name="New Class", description="Description")

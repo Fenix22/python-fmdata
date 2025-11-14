@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import List, Optional, Dict, Any, Iterator, Iterable
 
+import requests
+
 from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum
 
@@ -15,6 +17,18 @@ def optional_list(iterator: Optional[Iterator]) -> Optional[List]:
 @dataclass(frozen=True)
 class BaseProxy:
     raw_content: Dict[str, Any]
+
+@dataclass(frozen=True)
+class BaseHttpResponseProxy:
+    http_response: requests.Response
+
+    def ensure_2xx(self):
+        self.http_response.raise_for_status()
+
+    @cached_property
+    def raw_content(self) -> Dict[str, Any]:
+        return self.http_response.json(parse_float=self.http_response._parse_float)
+
 
 
 @dataclass(frozen=True)
@@ -36,7 +50,7 @@ def _get_int(input: FMErrorEnum | int):
 
 
 @dataclass(frozen=True)
-class BaseResult(BaseProxy):
+class BaseResult(BaseHttpResponseProxy):
 
     def _non_errors_message_codes(self) -> List[int]:
         return [FMErrorEnum.NO_ERROR.value]
@@ -85,7 +99,7 @@ class BaseResult(BaseProxy):
 
 
 @dataclass(frozen=True)
-class LogoutResult(BaseResult, BaseProxy):
+class LogoutResult(BaseResult):
     pass
 
 
@@ -469,17 +483,8 @@ class GetLayoutsLayout(BaseProxy):
         return self.raw_content.get('name', None)
 
     @property
-    def is_folder(self) -> Optional[bool]:
-        return self.raw_content.get('isFolder', None)
-
-    @cached_property
-    def folder_layout_names(self) -> Optional[List[GetLayoutsLayout]]:
-        return optional_list(self.folder_layout_names_iterator)
-
-    @property
-    def folder_layout_names_iterator(self) -> Optional[Iterator[GetLayoutsLayout]]:
-        content: Optional[Iterable] = self.raw_content.get('folderLayoutNames', None)
-        return (GetLayoutsLayout(entry) for entry in content) if content is not None else None
+    def table(self) -> Optional[str]:
+        return self.raw_content.get('table', None)
 
 
 @dataclass(frozen=True)
