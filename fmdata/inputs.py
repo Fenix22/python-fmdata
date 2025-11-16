@@ -93,6 +93,9 @@ def _scripts_to_dict(scripts: ScriptsInput) -> Dict[str, str]:
 
 
 def _sort_to_params(sort: List[SingleSortInput]) -> Optional[str]:
+    return sort if sort else None
+
+def _sort_to_params_for_get_records(sort: List[SingleSortInput]) -> Optional[str]:
     return json.dumps(sort) if sort else None
 
 

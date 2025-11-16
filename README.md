@@ -87,13 +87,15 @@ students = Student.objects.order_by("pk").find(full_name__raw="*")
 
 # Find students with exact match (equivalent to __exact)
 student_john = Student.objects.find(full_name="John Doe")  # Searches for exact match
-students_of_2024_but_not_john = Student.objects.find(graduation_year=2024).omit(full_name="John Doe") # Searches for students graduating in 2024 but not named John Doe
+students_of_2024_but_not_john = Student.objects.find(graduation_year=2024).omit(
+    full_name="John Doe")  # Searches for students graduating in 2024 but not named John Doe
 
 # Query with chunking and portal prefetching
 result_set = (Student.objects
               .order_by("pk")
-              .find(full_name__raw="*") # __raw means filemaker raw query, so it will search for all students with a non-empty full_name
-              .chunk_size(1000) # Call the API in chunks of 1000 records (in this example, it will return all students)
+              .find(
+    full_name__raw="*")  # __raw means filemaker raw query, so it will search for all students with a non-empty full_name
+              .chunking(1000)  # Call the API in chunks of 1000 records (in this example, it will return all students)
               .prefetch_portal("classes", limit=100)
               )[:1000]  # Limit to first 1000 records
 
@@ -196,7 +198,7 @@ first_10 = Student.objects.find()[0:10]
 next_10 = Student.objects.find()[10:20]
 
 # Chunked processing for large datasets
-for student in Student.objects.find().chunk_size(1000):
+for student in Student.objects.find().chunking(1000):
     process_student(student)
 ```
 
@@ -217,7 +219,7 @@ for student in students:
     classes = student.classes.only_prefetched() 
 
     # Or force to fetch fresh portal data
-    classes = student.classes.avoid_prefetch_cache() 
+    classes = student.classes.ignore_prefetched() 
 
     # Create new portal records
     student.classes.create(name="New Class", description="Description")
