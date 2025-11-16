@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import List, Optional, Dict, Any, Iterator, Iterable
 
+import requests
+
 from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum
 
@@ -15,6 +17,18 @@ def optional_list(iterator: Optional[Iterator]) -> Optional[List]:
 @dataclass(frozen=True)
 class BaseProxy:
     raw_content: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BaseHttpResponseProxy:
+    http_response: requests.Response
+
+    def ensure_2xx(self):
+        self.http_response.raise_for_status()
+
+    @cached_property
+    def raw_content(self) -> Dict[str, Any]:
+        return self.http_response.json(parse_float=self.http_response._parse_float)
 
 
 @dataclass(frozen=True)
@@ -36,7 +50,7 @@ def _get_int(input: FMErrorEnum | int):
 
 
 @dataclass(frozen=True)
-class BaseResult(BaseProxy):
+class BaseResult(BaseHttpResponseProxy):
 
     def _non_errors_message_codes(self) -> List[int]:
         return [FMErrorEnum.NO_ERROR.value]
@@ -85,7 +99,7 @@ class BaseResult(BaseProxy):
 
 
 @dataclass(frozen=True)
-class LogoutResult(BaseResult, BaseProxy):
+class LogoutResult(BaseResult):
     pass
 
 
@@ -93,28 +107,12 @@ class LogoutResult(BaseResult, BaseProxy):
 class ScriptResponse(BaseProxy):
 
     @property
-    def after_script_result(self) -> Optional[str]:
+    def script_result(self) -> Optional[str]:
         return self.raw_content.get('scriptResult', None)
 
     @property
-    def after_script_error(self) -> Optional[str]:
+    def script_error(self) -> Optional[str]:
         return self.raw_content.get('scriptError', None)
-
-    @property
-    def prerequest_script_result(self) -> Optional[str]:
-        return self.raw_content.get('scriptResult.prerequest', None)
-
-    @property
-    def prerequest_script_error(self) -> Optional[str]:
-        return self.raw_content.get('scriptError.prerequest', None)
-
-    @property
-    def presort_script_result(self) -> Optional[str]:
-        return self.raw_content.get('scriptResult.presort', None)
-
-    @property
-    def presort_script_error(self) -> Optional[str]:
-        return self.raw_content.get('scriptError.presort', None)
 
 
 @dataclass(frozen=True)
@@ -182,7 +180,9 @@ class PortalDataValue(BaseProxy):
     def mod_id(self) -> Optional[str]:
         return self.raw_content.get('modId', None)
 
+
 PortalDataList = CacheIterator[PortalDataValue]
+
 
 @dataclass(frozen=True)
 class DataInfo(BaseProxy):
@@ -245,12 +245,36 @@ class Data(BaseProxy):
 
     @cached_property
     def portal_data(self) -> Optional[PortalData]:
-        portal_data: Optional[Dict[str,Any]] = self.raw_content.get('portalData', None)
+        portal_data: Optional[Dict[str, Any]] = self.raw_content.get('portalData', None)
         return PortalData(raw_content=portal_data) if portal_data is not None else None
 
 
 @dataclass(frozen=True)
-class CommonSearchRecordsResponseField(ScriptResponse):
+class CommonSearchRecordsResponseField(BaseProxy):
+
+    @property
+    def after_script_result(self) -> Optional[str]:
+        return self.raw_content.get('scriptResult', None)
+
+    @property
+    def after_script_error(self) -> Optional[str]:
+        return self.raw_content.get('scriptError', None)
+
+    @property
+    def prerequest_script_result(self) -> Optional[str]:
+        return self.raw_content.get('scriptResult.prerequest', None)
+
+    @property
+    def prerequest_script_error(self) -> Optional[str]:
+        return self.raw_content.get('scriptError.prerequest', None)
+
+    @property
+    def presort_script_result(self) -> Optional[str]:
+        return self.raw_content.get('scriptResult.presort', None)
+
+    @property
+    def presort_script_error(self) -> Optional[str]:
+        return self.raw_content.get('scriptError.presort', None)
 
     @property
     def data_info(self) -> Optional[DataInfo]:
@@ -469,17 +493,8 @@ class GetLayoutsLayout(BaseProxy):
         return self.raw_content.get('name', None)
 
     @property
-    def is_folder(self) -> Optional[bool]:
-        return self.raw_content.get('isFolder', None)
-
-    @cached_property
-    def folder_layout_names(self) -> Optional[List[GetLayoutsLayout]]:
-        return optional_list(self.folder_layout_names_iterator)
-
-    @property
-    def folder_layout_names_iterator(self) -> Optional[Iterator[GetLayoutsLayout]]:
-        content: Optional[Iterable] = self.raw_content.get('folderLayoutNames', None)
-        return (GetLayoutsLayout(entry) for entry in content) if content is not None else None
+    def table(self) -> Optional[str]:
+        return self.raw_content.get('table', None)
 
 
 @dataclass(frozen=True)
@@ -657,11 +672,13 @@ class FileMakerErrorException(Exception):
 class Page:
     result: CommonSearchRecordsResult
 
+
 PageIterator = Iterator[Page]
+
 
 @dataclass(frozen=True)
 class PortalPage:
     result: GetRecordResult
 
-PortalPageIterator = Iterator[PortalPage]
 
+PortalPageIterator = Iterator[PortalPage]

@@ -10,7 +10,7 @@ version = os.getenv('PACKAGE_VERSION', '0.0.1-dev')
 setup(
     name='fmdata',
     version=version,
-    python_requires='>=3.8',
+    python_requires='>=3.9',
     author='Lorenzo De Siena',
     author_email='dev.lorenzo.desiena@gmail.com',
     description='fmdata is a wrapper around the FileMaker Data API.',
@@ -21,13 +21,14 @@ setup(
     include_package_data=True,
     install_requires=['requests>=2',
                       'typing_extensions>=3',
-                      'marshmallow>=3'],
+                      'marshmallow>=3',
+                      'tzdata>=2025.2'],
     extras_require={
         'cloud': ['pycognito>=0.1.4']
     },
     classifiers=[
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent'
     ]

@@ -4,8 +4,9 @@ import json
 import logging
 import threading
 import time
+from enum import IntEnum
 from functools import wraps
-from typing import List, Dict, Optional, Any, IO, Iterator, Callable
+from typing import List, Dict, Optional, Any, IO, Iterator, Callable, Union
 
 import requests
 
@@ -13,7 +14,7 @@ from fmdata.cache_iterator import CacheIterator
 from fmdata.const import FMErrorEnum, APIPath
 from fmdata.inputs import ScriptsInput, OptionsInput, _scripts_to_dict, \
     _portals_to_params, _sort_to_params, _date_formats_to_value, PortalsInput, \
-    SortInput, QueryInput, VerifySSL, DateInput, SinglePortalInput
+    SortInput, QueryInput, VerifySSL, DateInput, SinglePortalInput, _sort_to_params_for_get_records
 from fmdata.results import \
     FileMakerErrorException, LogoutResult, CreateRecordResult, EditRecordResult, DeleteRecordResult, \
     GetRecordResult, ScriptResult, BaseResult, Message, LoginResult, UploadContainerResult, GetRecordsResult, \
@@ -22,15 +23,31 @@ from fmdata.results import \
     DuplicateRecordResult, PortalPage
 from fmdata.utils import clean_none
 
+logger = logging.getLogger("fmdata")
+
+
+# TODO rename to fmd_client? Or just client?
+
+class FMVersion(IntEnum):
+    V17 = 17_00_00_00
+    V18 = 18_00_00_00
+    V19 = 19_00_00_00
+    V20 = 20_00_00_00
+    V21 = 21_00_00_00
+    V22 = 22_00_00_00
+
 
 class LoginFailedException(Exception):
+    def __init__(self, msg) -> None:
+        super().__init__(msg)
 
+
+class IncompatibleVersionException(Exception):
     def __init__(self, msg) -> None:
         super().__init__(msg)
 
 
 class LoginRetriedTooFastException(Exception):
-
     def __init__(self, msg) -> None:
         super().__init__(msg)
 
@@ -82,12 +99,56 @@ def _auto_manage_session(f):
     return wrapper
 
 
+def map_filemaker_version_or_raise(filemaker_version: Union[str, int]) -> FMVersion:
+    if filemaker_version is None:
+        raise ValueError("Error initializing FMClient: filemaker_version must be set.")
+
+    if isinstance(filemaker_version, str):
+        major_version = filemaker_version.split('.')[0]
+
+        major_version_int = int(major_version)
+    elif isinstance(filemaker_version, int):
+        major_version_int = filemaker_version
+    else:
+        raise ValueError("Error initializing FMClient: filemaker_version must be a string or an integer.")
+
+    # If in input we have FMVersion.FM_XX (>=17_00_00_00)
+    if major_version_int >= FMVersion.V17:
+        fm_version = FMVersion._value2member_map_.get(major_version_int, None)
+        if fm_version is None:
+            raise ValueError(
+                'Error initializing FMClient: Unknown FileMaker version. Use filemaker_version=fmdata.FMVersion.FM_XX or filemaker_version="XX"')
+
+    # If in input we have a low value (<100)
+    elif major_version_int < 17:
+        raise ValueError(
+            "Error initializing FMClient: Unsupported FileMaker version. Only versions 17 and higher are supported.")
+    elif major_version_int == 17:
+        fm_version = FMVersion.V17
+    elif major_version_int == 18:
+        fm_version = FMVersion.V18
+    elif major_version_int == 19:
+        fm_version = FMVersion.V19
+    elif major_version_int == 20:
+        fm_version = FMVersion.V20
+    elif major_version_int == 21:
+        fm_version = FMVersion.V21
+    elif 22 <= major_version_int <= 100:
+        # For future versions > 22 continue to use 22
+        fm_version = FMVersion.V22
+    else:
+        raise ValueError(
+            'Error initializing FMClient: Unknown FileMaker version. Use filemaker_version=fmdata.FMVersion.FM_XX or filemaker_version="XX"')
+
+    return fm_version
+
+
 class FMClient:
     def __init__(self,
                  url: str,
                  database: str,
                  login_provider: SessionProvider,
-                 api_version: str = "v1",
+                 filemaker_version: Union[str, int],
                  connection_timeout: float = 10,
                  read_timeout: float = 30,
                  too_fast_login_retry_timeout: Optional[float] = 1,
@@ -98,13 +159,20 @@ class FMClient:
         self.url: str = url
         self.database: str = database
         self.login_provider: SessionProvider = login_provider
-        self.api_version: str = api_version
+        self.filemaker_version: FMVersion = map_filemaker_version_or_raise(filemaker_version)
         self.connection_timeout: float = connection_timeout
         self.read_timeout: float = read_timeout
         self.too_fast_login_retry_timeout: Optional[float] = too_fast_login_retry_timeout
         self.http_client_extra_params: Dict = http_client_extra_params or {}
         self.verify_ssl: VerifySSL = verify_ssl
         self.auto_manage_session: bool = auto_manage_session
+
+        if self.url is None:
+            raise ValueError("Error initializing client: url must be set.")
+        if self.database is None:
+            raise ValueError("Error initializing client: database must be set.")
+        if self.login_provider is None:
+            raise ValueError("Error initializing client: login_provider must be set.")
 
         self._token: Optional[str] = None
         self._session_invalid: bool = True
@@ -122,7 +190,7 @@ class FMClient:
         if not self.login_provider:
             raise ValueError("LoginProvider is not set.")
 
-        logging.debug("Logging in to FileMaker Data API")
+        logger.debug("Logging in to FileMaker Data API")
 
         try:
             self._token = self.login_provider.login(fm_client=self)
@@ -149,7 +217,7 @@ class FMClient:
                         self._raise_exception_if_too_fast()
                     self.login()
 
-    def logout(self, **kwargs) -> Optional[LogoutResult]:
+    def logout(self, api_version: Optional[str] = "v1", **kwargs) -> Optional[LogoutResult]:
         """
         Explicitly logs out of the current session.
         """
@@ -157,18 +225,19 @@ class FMClient:
             return None
 
         path = APIPath.AUTH_SESSION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             token=self._token
         )
 
         return LogoutResult(
-            raw_content=self.call_filemaker(method='DELETE', path=path, use_session_token=False, **kwargs))
+            http_response=self.call_filemaker(method='DELETE', path=path, use_session_token=False, **kwargs))
 
     @_auto_manage_session
     def create_record(self,
                       layout: str,
                       field_data: Dict[str, Any],
+                      api_version: Optional[str] = "v1",
                       portal_data: Optional[Dict[str, Any]] = None,
                       scripts: Optional[ScriptsInput] = None,
                       options: Optional[OptionsInput] = None,
@@ -177,7 +246,7 @@ class FMClient:
                       ) -> CreateRecordResult:
 
         path = APIPath.RECORDS.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
         )
@@ -196,12 +265,13 @@ class FMClient:
     def duplicate_record(self,
                          layout: str,
                          record_id: str,
+                         api_version: Optional[str] = "v1",
                          scripts: Optional[ScriptsInput] = None,
                          **kwargs
                          ) -> DuplicateRecordResult:
 
         path = APIPath.RECORD_ACTION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
             record_id=record_id
@@ -218,6 +288,7 @@ class FMClient:
                     layout: str,
                     record_id: str,
                     field_data: Dict[str, Any],
+                    api_version: Optional[str] = "v1",
                     mod_id: Optional[str] = None,
                     portal_data: Optional[Dict[str, Any]] = None,
                     scripts: Optional[ScriptsInput] = None,
@@ -226,7 +297,7 @@ class FMClient:
                     **kwargs
                     ) -> EditRecordResult:
         path = APIPath.RECORD_ACTION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
             record_id=record_id
@@ -247,12 +318,13 @@ class FMClient:
     def delete_record(self,
                       layout: str,
                       record_id: str,
+                      api_version: Optional[str] = "v1",
                       scripts: Optional[ScriptsInput] = None,
                       **kwargs
                       ) -> DeleteRecordResult:
 
         path = APIPath.RECORD_ACTION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
             record_id=record_id
@@ -268,6 +340,7 @@ class FMClient:
     def get_record(self,
                    layout: str,
                    record_id: str,
+                   api_version: Optional[str] = "v1",
                    response_layout: Optional[str] = None,
                    portals: Optional[PortalsInput] = None,
                    scripts: Optional[ScriptsInput] = None,
@@ -275,7 +348,7 @@ class FMClient:
                    ) -> GetRecordResult:
 
         path = APIPath.RECORD_ACTION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
             record_id=record_id
@@ -287,7 +360,7 @@ class FMClient:
             **_scripts_to_dict(scripts),
         })
 
-        return GetRecordResult(raw_content=self.call_filemaker(method='GET', path=path, params=params, **kwargs),
+        return GetRecordResult(http_response=self.call_filemaker(method='GET', path=path, params=params, **kwargs),
                                client=self,
                                layout=layout)
 
@@ -295,12 +368,13 @@ class FMClient:
     def perform_script(self,
                        layout: str,
                        name: str,
+                       api_version: Optional[str] = "v1",
                        param: Optional[str] = None,
                        **kwargs
                        ) -> ScriptResult:
 
         path = APIPath.SCRIPT.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
             script_name=name
@@ -314,12 +388,13 @@ class FMClient:
                          record_id: str,
                          field_name: str,
                          file: IO,
+                         api_version: Optional[str] = "v1",
                          field_repetition: int = 1,
                          **kwargs
                          ) -> UploadContainerResult:
 
         path = APIPath.UPLOAD_CONTAINER.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout,
             record_id=record_id,
@@ -335,7 +410,8 @@ class FMClient:
     def get_records(self,
                     layout: str,
                     offset: int = 1,
-                    limit: int = 100,
+                    limit: int = None,
+                    api_version: Optional[str] = "v1",
                     response_layout: Optional[str] = None,
                     sort: Optional[SortInput] = None,
                     portals: Optional[PortalsInput] = None,
@@ -345,7 +421,7 @@ class FMClient:
                     ) -> GetRecordsResult:
 
         path = APIPath.RECORDS.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout
         )
@@ -355,19 +431,19 @@ class FMClient:
             '_limit': limit,
             'layout.response': response_layout,
             'date_formats': _date_formats_to_value(date_formats),
-            '_sort': _sort_to_params(sort),
+            '_sort': _sort_to_params_for_get_records(sort),
             **_portals_to_params(portals, names_as_string=True),
             **_scripts_to_dict(scripts),
         })
 
-        return GetRecordsResult(raw_content=self.call_filemaker(method='GET', path=path, params=params, **kwargs),
+        return GetRecordsResult(http_response=self.call_filemaker(method='GET', path=path, params=params, **kwargs),
                                 client=self,
                                 layout=layout)
 
     def get_records_paginated(self,
                               offset: int = 1,
                               page_size: Optional[int] = 100,
-                              limit: Optional[int] = 200,
+                              limit: Optional[int] = None,
                               **kwargs
                               ) -> GetRecordsPaginatedResult:
 
@@ -386,9 +462,10 @@ class FMClient:
     def find(self,
              layout: str,
              query: QueryInput,
+             api_version: Optional[str] = "v1",
              sort: Optional[SortInput] = None,
              offset: int = 1,
-             limit: int = 100,
+             limit: int = None,
              portals: Optional[PortalsInput] = None,
              scripts: Optional[ScriptsInput] = None,
              date_formats: Optional[DateInput] = None,
@@ -397,7 +474,7 @@ class FMClient:
              ) -> FindResult:
 
         path = APIPath.FIND.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout
         )
@@ -413,14 +490,14 @@ class FMClient:
             **_scripts_to_dict(scripts),
         })
 
-        return FindResult(raw_content=self.call_filemaker(method='POST', path=path, data=data, **kwargs),
+        return FindResult(http_response=self.call_filemaker(method='POST', path=path, data=data, **kwargs),
                           client=self,
                           layout=layout)
 
     def find_paginated(self,
                        offset: int = 1,
                        page_size: Optional[int] = 100,
-                       limit: Optional[int] = 200,
+                       limit: Optional[int] = None,
                        **kwargs
                        ) -> FindPaginatedResult:
 
@@ -436,28 +513,34 @@ class FMClient:
         )
 
     @_auto_manage_session
-    def set_globals(self, global_fields: Dict[str, Any], **kwargs) -> SetGlobalResult:
+    def set_globals(self, global_fields: Dict[str, Any], api_version: Optional[str] = "v1",
+                    **kwargs) -> SetGlobalResult:
         path = APIPath.GLOBALS.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database
         )
 
         data = {'globalFields': global_fields}
         return SetGlobalResult(self.call_filemaker(method='PATCH', path=path, data=data, **kwargs))
 
-    def get_product_info(self, **kwargs) -> GetProductInfoResult:
+    def get_product_info(self, api_version: Optional[str] = "v1", **kwargs) -> GetProductInfoResult:
+        assert_fm_version_gte(self, FMVersion.V18)
+
         path = APIPath.META_PRODUCT.value.format(
-            api_version=self._pop_api_version(kwargs)
+            api_version=api_version
         )
 
         return GetProductInfoResult(self.call_filemaker(method='GET', path=path, use_session_token=False, **kwargs))
 
     def get_databases(self,
+                      api_version: Optional[str] = "v1",
                       username: Optional[str] = None,
                       password: Optional[str] = None,
                       **kwargs) -> GetDatabasesResult:
+        assert_fm_version_gte(self, FMVersion.V18)
+
         path = APIPath.META_DATABASES.value.format(
-            api_version=self._pop_api_version(kwargs)
+            api_version=api_version
         )
 
         auth = (username, password) if (username and password) else None
@@ -465,20 +548,23 @@ class FMClient:
             self.call_filemaker(method='GET', path=path, auth=auth, use_session_token=False, **kwargs))
 
     @_auto_manage_session
-    def get_layouts(self, **kwargs) -> GetLayoutsResult:
+    def get_layouts(self, api_version: Optional[str] = "v1", **kwargs) -> GetLayoutsResult:
+        assert_fm_version_gte(self, FMVersion.V18)
+
         path = APIPath.META_LAYOUTS.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database
         )
 
         return GetLayoutsResult(self.call_filemaker(method='GET', path=path, **kwargs))
 
     @_auto_manage_session
-    def get_layout(self, layout: Optional[str] = None,
+    def get_layout(self, api_version: Optional[str] = "v1", layout: Optional[str] = None,
                    **kwargs) -> GetLayoutResult:
+        assert_fm_version_gte(self, FMVersion.V18)
 
         path = APIPath.META_LAYOUT.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             layout=layout
         )
@@ -486,9 +572,11 @@ class FMClient:
         return GetLayoutResult(self.call_filemaker(method='GET', path=path, **kwargs))
 
     @_auto_manage_session
-    def get_scripts(self, **kwargs) -> GetScriptsResult:
+    def get_scripts(self, api_version: Optional[str] = "v1", **kwargs) -> GetScriptsResult:
+        assert_fm_version_gte(self, FMVersion.V18)
+
         path = APIPath.META_SCRIPTS.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database
         )
 
@@ -496,12 +584,13 @@ class FMClient:
 
     def raw_login_username_password(self, username: str,
                                     password: str,
+                                    api_version: Optional[str] = "v1",
                                     data_sources: Optional[List[DataSourceProvider]] = None,
                                     **kwargs,
                                     ) -> LoginResult:
 
         path = APIPath.AUTH_SESSION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             token=''
         )
@@ -516,10 +605,11 @@ class FMClient:
     def raw_login_oauth(self, oauth_request_id: str,
                         oauth_identifier: str,
                         data_sources: Optional[List[DataSourceProvider]],
+                        api_version: Optional[str] = "v1",
                         **kwargs,
                         ) -> LoginResult:
         path = APIPath.AUTH_SESSION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             token=''
         )
@@ -537,10 +627,11 @@ class FMClient:
 
     def raw_login_claris_cloud(self, fmid_token: str,
                                data_sources: Optional[List[DataSourceProvider]],
+                               api_version: Optional[str] = "v1",
                                **kwargs,
                                ) -> LoginResult:
         path = APIPath.AUTH_SESSION.value.format(
-            api_version=self._pop_api_version(kwargs),
+            api_version=api_version,
             database=self.database,
             token=''
         )
@@ -557,25 +648,21 @@ class FMClient:
             self.call_filemaker(method='POST', path=path, data=data, headers=headers, use_session_token=False,
                                 **kwargs))
 
-    def _pop_api_version(self, kwargs) -> str:
-        value_in_kwargs = kwargs.pop('api_version', None)
-        return value_in_kwargs if value_in_kwargs else self.api_version
-
     def _pop_connection_timeout(self, kwargs) -> float:
         value_in_kwargs = kwargs.pop('connection_timeout', None)
-        return value_in_kwargs if value_in_kwargs else self.connection_timeout
+        return value_in_kwargs if value_in_kwargs is not None else self.connection_timeout
 
     def _pop_read_timeout(self, kwargs) -> float:
         value_in_kwargs = kwargs.pop('read_timeout', None)
-        return value_in_kwargs if value_in_kwargs else self.read_timeout
+        return value_in_kwargs if value_in_kwargs is not None else self.read_timeout
 
     def _pop_http_client_extra_params(self, kwargs) -> Dict:
         value_in_kwargs = kwargs.pop('http_client_extra_params', None)
-        return value_in_kwargs if value_in_kwargs else self.http_client_extra_params
+        return value_in_kwargs if value_in_kwargs is not None else self.http_client_extra_params
 
     def _pop_verify_ssl(self, kwargs) -> VerifySSL:
         value_in_kwargs = kwargs.pop('verify_ssl', None)
-        return value_in_kwargs if value_in_kwargs else self.verify_ssl
+        return value_in_kwargs if value_in_kwargs is not None else self.verify_ssl
 
     def _raise_exception_if_too_fast(self):
         if self.too_fast_login_retry_timeout is None or self._session_last_login_retry is None:
@@ -589,11 +676,6 @@ class FMClient:
                 f"retry timeout is {self.too_fast_login_retry_timeout * 1000:.0f}ms."
             )
 
-    def _request(self, *args, **kwargs) -> requests.Response:
-        return requests.request(*args,
-                                timeout=(self._pop_connection_timeout(kwargs), self._pop_read_timeout(kwargs)),
-                                **kwargs)
-
     def call_filemaker(self, method: str,
                        path: str,
                        headers: Optional[Dict] = None,
@@ -601,7 +683,7 @@ class FMClient:
                        params: Optional[Dict] = None,
                        use_session_token: bool = True,
                        content_type: Optional[str] = 'application/json',
-                       **kwargs: Any) -> Dict:
+                       **kwargs: Any) -> requests.Response:
 
         url = self.url + path
         request_data = json.dumps(data) if data else None
@@ -613,21 +695,27 @@ class FMClient:
         if use_session_token:
             request_headers['Authorization'] = f'Bearer {self._token}'
 
-        response = self._request(
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"FileMaker request: method={method} url={url} headers={request_headers} body={request_data}")
+
+        response = requests.request(
             method=method,
             headers=request_headers,
             url=url,
             data=request_data,
             verify=self._pop_verify_ssl(kwargs),
             params=params,
+            timeout=(self._pop_connection_timeout(kwargs), self._pop_read_timeout(kwargs)),
             **self._pop_http_client_extra_params(kwargs),
-            **kwargs
-        )
+            **kwargs)
 
-        response.raise_for_status()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"FileMaker response: url={url} headers={response.headers} body={response.content}")
 
         parse_float = kwargs.pop('parse_float', str)
-        return response.json(parse_float=parse_float)
+        response._parse_float = parse_float
+
+        return response
 
     def __repr__(self) -> str:
         return f"<FMClient logged_in={bool(not self._session_invalid)} token={self._token} database={self.database}>"
@@ -638,8 +726,8 @@ def page_generator(
         layout: str,
         fn_get_response: Callable[..., BaseResult] = None,
         offset: int = 1,
-        page_size: Optional[int] = 100,
-        limit: Optional[int] = 200,
+        page_size: Optional[int] = None,
+        limit: Optional[int] = None,
         **kwargs
 ) -> Iterator[Page]:
     if offset < 1:
@@ -689,7 +777,7 @@ def page_generator(
             **kwargs
         )
 
-        result = CommonSearchRecordsResult(raw_content=client_response.raw_content, client=client,
+        result = CommonSearchRecordsResult(http_response=client_response.http_response, client=client,
                                            layout=layout)
 
         result.raise_exception_if_has_error()
@@ -722,7 +810,7 @@ def portal_page_generator(
         portal_name: str,
         offset: int = 1,
         page_size: Optional[int] = None,
-        limit: Optional[int] = 200,
+        limit: Optional[int] = None,
         **kwargs
 ) -> Iterator[PortalPage]:
     if offset < 1:
@@ -783,7 +871,7 @@ def portal_page_generator(
             response_entries_count = 0
             is_final_page = True
         else:
-            response_entries_count = len(result.response.data[0].get(portal_name, []))
+            response_entries_count = len(result.response.data[0].portal_data.get(portal_name, []))
 
             if response_entries_count == 0 or response_entries_count < limit_for_current_request:
                 is_final_page = True
@@ -793,3 +881,14 @@ def portal_page_generator(
         # Update offset and retrived for the next page
         records_retrieved += response_entries_count
         offset += response_entries_count
+
+
+def assert_fm_version_gte(client: FMClient, version: FMVersion):
+    if not fm_version_gte(client, version):
+        raise IncompatibleVersionException(
+            f"FileMaker version {version.name} is required to perform this operation. Current version is {client.filemaker_version.name}")
+
+
+def fm_version_gte(client: FMClient, version: FMVersion):
+    client_version = client.filemaker_version
+    return client_version >= version

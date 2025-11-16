@@ -1,7 +1,12 @@
 marshmallow
 wheel
 requests
+tzdata
 pycognito
-setuptools
 typing_extensions
 django-environ
+
+
+pip
+setuptools
+coverage
