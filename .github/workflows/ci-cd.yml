@@ -1,19 +1,61 @@
-name: Build and publish
+name: CI/CD
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - '*'
+      - '**'        # run on all branches (including master)
+    tags:
+      - 'v*.*.*'    # release tags like v1.2.3
 
 env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-  PRE_RELEASE_VERSION: true
-  DRAFT_VERSION: true
 
 jobs:
-  build-and-publish:
+  tests:
+    name: Tests
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+#      - name: Run tests with coverage in FMS17
+#        run: |
+#          ENV_FILE=.env_fms17 coverage run --data-file=.coverage.env_fms17 -m unittest discover -s tests -t tests
+#          coverage xml -o coverage.xml
+
+      - name: Upload coverage to Codecov (only on master)
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  release:
+    name: Release on tag
+    runs-on: ubuntu-latest
+    needs: tests
+    if: startsWith(github.ref, 'refs/tags/v')
     environment:
       name: pypi
       url: https://pypi.org/p/fmdata
@@ -23,61 +65,57 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Sets env vars for main
-        if: ${{ env.BRANCH_NAME == 'main' }}
+      - name: Ensure tag commit is on master
         run: |
-          echo "PRE_RELEASE_VERSION=false" >> $GITHUB_ENV
-          echo "DRAFT_VERSION=false" >> $GITHUB_ENV
+          git fetch origin master:origin-master
+          if git merge-base --is-ancestor origin-master "${GITHUB_SHA}"; then
+            echo "Tag commit is contained in master."
+          else
+            echo "Error: Release tags must point to a commit on master."
+            exit 1
+          fi
 
-      - name: Get next version
-        uses: reecetech/version-increment@2024.10.1
-        id: version
-        with:
-          scheme: semver
-          release_branch: main
-
-      - name: Set PACKAGE_VERSION Environment Variable
-        run: echo "PACKAGE_VERSION=${{ steps.version.outputs.version }}" >> $GITHUB_ENV
-
-      - name: Release version
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: ${{ env.DRAFT_VERSION }}
-          prerelease: ${{ env.PRE_RELEASE_VERSION }}
-          tag_name: "${{ steps.version.outputs.version }}"
+      - name: Extract version from tag and export PACKAGE_VERSION
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          # Expect tags like v1.2.3 -> PACKAGE_VERSION=1.2.3
+          VERSION="${TAG_NAME#v}"
+          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.8'
 
-      # Cache pip dependencies for faster builds
       - name: Cache pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      # Install dependencies
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install build
 
-      # (Optional) Run tests
-      #      - name: Run tests
-      #        run: |
-      #          pytest
-
-      # Build the package
       - name: Build package
         run: |
-          python setup.py sdist bdist_wheel
+          python -m build
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          tag_name: "${{ github.ref_name }}"
+          generate_release_notes: true
 
       - name: Publish package distributions to PyPI
-        if: ${{ env.PRE_RELEASE_VERSION == 'false' }}
         uses: pypa/gh-action-pypi-publish@release/v1
 

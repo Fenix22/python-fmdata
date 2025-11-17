@@ -5,7 +5,6 @@ pycognito
 typing_extensions
 django-environ
 
-pytest
 pip
 setuptools
-
+coverage
