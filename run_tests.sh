@@ -9,3 +9,4 @@ ENV_FILE=.env_fms22 coverage run --data-file=.coverage.env_fms22 \
 coverage combine .coverage.env_fms17 .coverage.env_fms22
 coverage report -m
 coverage html  # optional: generates htmlcov/index.html
+coverage xml -o coverage.xml
