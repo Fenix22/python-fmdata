@@ -43,7 +43,7 @@ jobs:
 #          coverage xml -o coverage.xml
 
       - name: Upload coverage to Codecov (only on master)
-        if: ${{ github.ref == 'refs/heads/master' }}
+        #if: ${{ github.ref == 'refs/heads/master' }}
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.xml
