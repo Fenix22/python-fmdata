@@ -52,6 +52,7 @@ fm_client = fmdata.FMClient(
         password=env("FMS_DB_PASSWORD"),
     ),
     filemaker_version=env("FMS_VERSION"),
+    verify_ssl=env("FMS_VERIFY_SSL", default=False),
 )
 
 
