@@ -41,7 +41,7 @@ jobs:
         shell: powershell
         run: |
           $envContent = @"
-          FMS_ADDRESS="http://localhost"
+          FMS_ADDRESS="http://localhost:5003"
           FMS_DB_NAME="fmdata_testing"
           FMS_DB_USER="${{ secrets.FMDATA_TESTING_USER }}"
           FMS_DB_PASSWORD="${{ secrets.FMDATA_TESTING_PASSWORD }}"
