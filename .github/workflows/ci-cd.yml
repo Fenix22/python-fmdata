@@ -38,7 +38,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Create tests/.env for FMS17
-        shell: pwsh
+        shell: powershell
         run: |
           $envContent = @"
           FMS_ADDRESS="http://localhost"
@@ -51,7 +51,7 @@ jobs:
           Set-Content -Path tests/.env -Value $envContent -NoNewline
 
       - name: Run integration tests with coverage (FMS17)
-        shell: pwsh
+        shell: powershell
         run: |
           $env:ENV_FILE = ".env"
           coverage run --data-file=.coverage.fms17 -m unittest discover -s tests -t tests
