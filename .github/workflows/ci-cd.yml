@@ -92,7 +92,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Create tests/.env for FMS22
-        shell: pwsh
+        shell: powershell
         run: |
           $envContent = @"
           FMS_ADDRESS="http://localhost"
