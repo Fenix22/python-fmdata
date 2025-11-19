@@ -134,11 +134,11 @@ jobs:
           name: coverage-fms17
           path: coverage_artifacts
 
-      - name: Download coverage artifact (FMS22)
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-fms22
-          path: coverage_artifacts
+#      - name: Download coverage artifact (FMS22)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: coverage-fms22
+#          path: coverage_artifacts
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6.0.0
