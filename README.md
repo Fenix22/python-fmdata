@@ -1,7 +1,7 @@
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Fenix22_python-fmdata&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Fenix22_python-fmdata)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=Fenix22_python-fmdata&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=Fenix22_python-fmdata)
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Fenix22_python-fmdata&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Fenix22_python-fmdata)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=Fenix22_python-fmdata&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=Fenix22_python-fmdata)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Fenix22_python-fmdata&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Fenix22_python-fmdata)
 [![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=Fenix22_python-fmdata&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=Fenix22_python-fmdata)
 
 
