@@ -65,10 +65,10 @@ jobs:
             coverage_fms17.xml
             .coverage.fms17
 
+
   integration-fms22:
     name: Integration tests (FMS22 on fms_22)
-    runs-on: [ fms_22]
-    if: false
+    runs-on: [fms_22]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -76,12 +76,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.8'
+          python-version: '3.9'
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
-          path: ~\AppData\Local\pip\Cache
+          path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
@@ -92,24 +92,24 @@ jobs:
           pip install -r requirements.txt
 
       - name: Create tests/.env for FMS22
-        shell: powershell
+        shell: bash
         run: |
-          $envContent = @"
-          FMS_ADDRESS="http://localhost"
+          mkdir -p tests
+          cat > tests/.env << 'EOF'
+          FMS_ADDRESS="https://localhost"
           FMS_DB_NAME="fmdata_testing"
           FMS_DB_USER="${{ secrets.FMDATA_TESTING_USER }}"
           FMS_DB_PASSWORD="${{ secrets.FMDATA_TESTING_PASSWORD }}"
           FMS_VERSION="22"
-          "@
-          New-Item -ItemType Directory -Force -Path tests | Out-Null
-          Set-Content -Path tests/.env -Value $envContent -NoNewline
+          EOF
 
       - name: Run integration tests with coverage (FMS22)
-        shell: pwsh
+        shell: bash
         run: |
-          $env:ENV_FILE = ".env"
-          coverage run --data-file=.coverage.fms22 -m unittest discover -s tests -t tests
+          export ENV_FILE=".env"
+          coverage run -m unittest discover -s tests -t tests
           coverage xml -o coverage_fms22.xml
+          mv .coverage .coverage.fms22 || true
 
       - name: Upload coverage artifact (FMS22)
         uses: actions/upload-artifact@v4
@@ -119,11 +119,13 @@ jobs:
             coverage_fms22.xml
             .coverage.fms22
 
+
   sonarcloud:
     name: SonarCloud analysis
     runs-on: ubuntu-latest
     needs:
       - integration-fms17
+      - integration-fms22
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -134,11 +136,11 @@ jobs:
           name: coverage-fms17
           path: coverage_artifacts
 
-#      - name: Download coverage artifact (FMS22)
-#        uses: actions/download-artifact@v4
-#        with:
-#          name: coverage-fms22
-#          path: coverage_artifacts
+      - name: Download coverage artifact (FMS22)
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-fms22
+          path: coverage_artifacts
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6.0.0
