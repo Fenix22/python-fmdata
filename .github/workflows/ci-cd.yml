@@ -144,6 +144,8 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECTKEY: Fenix22_python-fmdata
+          SONAR_ORGANIZATION: fenix22
 
   release:
     name: Release on tag
