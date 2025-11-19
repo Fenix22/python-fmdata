@@ -395,7 +395,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
     def test_datetime_with_text_fieldtype(self):
         fld = fmd_fields.DateTime(field_type=FMFieldType.Text)
         dt = datetime(2024, 5, 18, 6, 30, 5)
-        dt_tz = dt.astimezone(ZoneInfo("Europe/Paris"))
+        dt_tz = dt.replace(tzinfo=ZoneInfo("Europe/Paris"))
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("2024-05-18T06:30:05", fld._serialize(dt, "x", {}))
