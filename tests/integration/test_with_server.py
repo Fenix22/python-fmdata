@@ -685,7 +685,7 @@ class IntegrationTests(unittest.TestCase):
         logger.info(f"Container file download link: {download_link}")
 
         # Download and test content
-        response = requests.get(download_link)
+        response = requests.get(download_link, verify=fm_client.verify_ssl)
         self.assertEqual(response.status_code, 200)
 
         with open(file_path, "rb") as file:
@@ -740,7 +740,7 @@ class IntegrationTests(unittest.TestCase):
         download_link = address.picture
         logger.info(f"Portal container file download link: {download_link}")
 
-        response = requests.get(download_link)
+        response = requests.get(download_link, verify=fm_client.verify_ssl)
         self.assertEqual(response.status_code, 200)
         with open(file_path, "rb") as file:
             self.assertEqual(response.content, file.read())

@@ -698,17 +698,12 @@ class FMClient:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"FileMaker request: method={method} url={url} headers={request_headers} body={request_data}")
 
-        verify = self._pop_verify_ssl(kwargs)
-
-        session = requests.Session()
-        session.verify = verify
-
-        response = session.request(
+        response = requests.request(
             method=method,
             headers=request_headers,
             url=url,
             data=request_data,
-            verify=verify,
+            verify=self._pop_verify_ssl(kwargs),
             params=params,
             timeout=(self._pop_connection_timeout(kwargs), self._pop_read_timeout(kwargs)),
             **self._pop_http_client_extra_params(kwargs),
