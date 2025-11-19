@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
-from fmdata.fmclient import FMClient, SessionProvider, DataSourceProvider
+from fmdata.client import Client, SessionProvider, DataSourceProvider
 from fmdata.results import LoginResult
 
 
@@ -47,7 +47,7 @@ class UsernamePasswordSessionProvider(SessionProvider):
     password: str
     data_sources: Optional[List[DataSourceProvider]] = None
 
-    def login(self, fm_client: FMClient, **kwargs) -> str:
+    def login(self, fm_client: Client, **kwargs) -> str:
         result: LoginResult = fm_client.raw_login_username_password(
             username=self.username,
             password=self.password,
@@ -63,7 +63,7 @@ class OAuthSessionProvider(SessionProvider):
     oauth_identifier: str
     data_sources: Optional[List[DataSourceProvider]] = None
 
-    def login(self, fm_client: FMClient, **kwargs) -> str:
+    def login(self, fm_client: Client, **kwargs) -> str:
         result: LoginResult = fm_client.raw_login_oauth(
             oauth_request_id=self.oauth_request_id,
             oauth_identifier=self.oauth_identifier,
@@ -81,7 +81,6 @@ class ClarisCloudSessionProvider(SessionProvider):
     claris_id_password: str = None
     data_sources: Optional[List[DataSourceProvider]] = None
 
-
     def _get_cognito_token(self) -> str:
         """Use Pycognito library to authenticate with Amazon Cognito and retrieve FMID token."""
         try:
@@ -98,7 +97,7 @@ class ClarisCloudSessionProvider(SessionProvider):
         user.authenticate(self.claris_id_password)
         return user.id_token
 
-    def login(self, fm_client: FMClient, **kwargs) -> Optional[str]:
+    def login(self, fm_client: Client, **kwargs) -> Optional[str]:
         fmid_token = self._get_cognito_token()
         result: LoginResult = fm_client.raw_login_claris_cloud(
             fmid_token=fmid_token,

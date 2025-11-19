@@ -25,9 +25,6 @@ from fmdata.utils import clean_none
 
 logger = logging.getLogger("fmdata")
 
-
-# TODO rename to fmd_client? Or just client?
-
 class FMVersion(IntEnum):
     V17 = 17_00_00_00
     V18 = 18_00_00_00
@@ -53,7 +50,7 @@ class LoginRetriedTooFastException(Exception):
 
 
 class SessionProvider:
-    def login(self, fm_client: FMClient, **kwargs) -> str:
+    def login(self, fm_client: Client, **kwargs) -> str:
         raise NotImplementedError
 
 
@@ -71,7 +68,7 @@ def fm_data_source_from_providers(providers: List[DataSourceProvider]) -> Option
 
 def _auto_manage_session(f):
     @wraps(f)
-    def wrapper(self: FMClient, *args, **kwargs):
+    def wrapper(self: Client, *args, **kwargs):
         if not self.auto_manage_session:
             if self._session_invalid:
                 raise Exception("Session is invalid. Please call login first.")
@@ -99,25 +96,25 @@ def _auto_manage_session(f):
     return wrapper
 
 
-def map_filemaker_version_or_raise(filemaker_version: Union[str, int]) -> FMVersion:
-    if filemaker_version is None:
-        raise ValueError("Error initializing FMClient: filemaker_version must be set.")
+def map_version_or_raise(version: Union[str, int]) -> FMVersion:
+    if version is None:
+        raise ValueError("Error initializing FMClient: version must be set.")
 
-    if isinstance(filemaker_version, str):
-        major_version = filemaker_version.split('.')[0]
+    if isinstance(version, str):
+        major_version = version.split('.')[0]
 
         major_version_int = int(major_version)
-    elif isinstance(filemaker_version, int):
-        major_version_int = filemaker_version
+    elif isinstance(version, int):
+        major_version_int = version
     else:
-        raise ValueError("Error initializing FMClient: filemaker_version must be a string or an integer.")
+        raise ValueError("Error initializing FMClient: version must be a string or an integer.")
 
     # If in input we have FMVersion.FM_XX (>=17_00_00_00)
     if major_version_int >= FMVersion.V17:
         fm_version = FMVersion._value2member_map_.get(major_version_int, None)
         if fm_version is None:
             raise ValueError(
-                'Error initializing FMClient: Unknown FileMaker version. Use filemaker_version=fmdata.FMVersion.FM_XX or filemaker_version="XX"')
+                'Error initializing FMClient: Unknown FileMaker version. Use version=fmdata.FMVersion.FM_XX or version="XX"')
 
     # If in input we have a low value (<100)
     elif major_version_int < 17:
@@ -138,17 +135,17 @@ def map_filemaker_version_or_raise(filemaker_version: Union[str, int]) -> FMVers
         fm_version = FMVersion.V22
     else:
         raise ValueError(
-            'Error initializing FMClient: Unknown FileMaker version. Use filemaker_version=fmdata.FMVersion.FM_XX or filemaker_version="XX"')
+            'Error initializing FMClient: Unknown FileMaker version. Use version=fmdata.FMVersion.FM_XX or version="XX"')
 
     return fm_version
 
 
-class FMClient:
+class Client:
     def __init__(self,
                  url: str,
                  database: str,
                  login_provider: SessionProvider,
-                 filemaker_version: Union[str, int],
+                 version: Union[str, int],
                  connection_timeout: float = 10,
                  read_timeout: float = 30,
                  too_fast_login_retry_timeout: Optional[float] = 1,
@@ -159,7 +156,7 @@ class FMClient:
         self.url: str = url
         self.database: str = database
         self.login_provider: SessionProvider = login_provider
-        self.filemaker_version: FMVersion = map_filemaker_version_or_raise(filemaker_version)
+        self.version: FMVersion = map_version_or_raise(version)
         self.connection_timeout: float = connection_timeout
         self.read_timeout: float = read_timeout
         self.too_fast_login_retry_timeout: Optional[float] = too_fast_login_retry_timeout
@@ -722,7 +719,7 @@ class FMClient:
 
 
 def page_generator(
-        client: FMClient,
+        client: Client,
         layout: str,
         fn_get_response: Callable[..., BaseResult] = None,
         offset: int = 1,
@@ -804,7 +801,7 @@ def cached_page_generator(
 
 
 def portal_page_generator(
-        client: FMClient,
+        client: Client,
         layout: str,
         record_id: str,
         portal_name: str,
@@ -883,12 +880,12 @@ def portal_page_generator(
         offset += response_entries_count
 
 
-def assert_fm_version_gte(client: FMClient, version: FMVersion):
+def assert_fm_version_gte(client: Client, version: FMVersion):
     if not fm_version_gte(client, version):
         raise IncompatibleVersionException(
-            f"FileMaker version {version.name} is required to perform this operation. Current version is {client.filemaker_version.name}")
+            f"FileMaker version {version.name} is required to perform this operation. Current version is {client.version.name}")
 
 
-def fm_version_gte(client: FMClient, version: FMVersion):
-    client_version = client.filemaker_version
+def fm_version_gte(client: Client, version: FMVersion):
+    client_version = client.version
     return client_version >= version

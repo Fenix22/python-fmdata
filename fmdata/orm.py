@@ -7,9 +7,10 @@ from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Uni
 
 from marshmallow import Schema, fields
 
-from fmdata import FMClient, fmd_fields, FMVersion
+import fmdata
+from fmdata import Client, FMVersion
 from fmdata.cache_iterator import CacheIterator
-from fmdata.fmclient import portal_page_generator, fm_version_gte
+from fmdata.client import portal_page_generator, fm_version_gte
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
 from fmdata.results import PageIterator, PortalData, PortalDataList, PortalPageIterator, Page, PortalPage
 
@@ -80,7 +81,7 @@ class ModelMetaPortalField:
 
 @dataclasses.dataclass
 class ModelMeta:
-    client: FMClient
+    client: Client
     layout: str
     base_schema: Type[FileMakerSchema]
     schema_config: dict
@@ -138,7 +139,7 @@ class PortalMetaclass(type):
 
                 _meta_fm_fields[field_fm_name] = model_meta_field
 
-                if isinstance(attr_value, fmd_fields.FMFieldMixin):
+                if isinstance(attr_value, fmdata.FMFieldMixin):
                     attr_value._field_name = field_fm_name
 
         base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
@@ -175,6 +176,7 @@ class PortalManager:
         self._ignore_prefetched = False
         self._result_cache: Optional[CacheIterator[PortalModel]] = None
         self._result_pages: Optional[CacheIterator[PortalPage]] = None
+        self._is_root_manager = True
 
     def _set_model(self, model: Model, meta_portal: ModelMetaPortalField):
         self._model = model
@@ -188,10 +190,14 @@ class PortalManager:
         qs._slice_start = self._slice_start
         qs._slice_stop = self._slice_stop
         qs._ignore_prefetched = self._ignore_prefetched
+        qs._is_root_manager = False
 
         return qs
 
     def _fetch_all(self):
+        if self._is_root_manager:
+            raise TypeError("Cannot execute a fetch directly on model.portal. Use Model.portal.all()")
+
         if self._result_cache is not None:
             return
 
@@ -215,7 +221,7 @@ class PortalManager:
         return iter(self._result_cache)
 
     def all(self):
-        return self
+        return self._clone()
 
     def first(self):
         for obj in self[:1]:
@@ -299,9 +305,18 @@ class PortalManager:
         # We cannot return it because it has no record_id yet so is useless and dangerous!
         # TODO in new versions of filemaker it could be possible to return it with record_id
 
+    def update(self, patch):
+        self._fetch_all()
+        portal_records = list(self._result_cache)
+
+        for portal_record in portal_records:
+            portal_record.update(**patch)
+
+        self._model.save(force_update=True, update_fields=[], portals=portal_records)
+
     def delete(self):
         self._fetch_all()
-        portal_records = [portal for portal in self._result_cache]
+        portal_records = list(self._result_cache)
 
         if not portal_records:
             return
@@ -318,7 +333,7 @@ class PortalManager:
 
         chunk_size = self._chunk_size
 
-        client: FMClient = self._model._meta.client
+        client: Client = self._model._meta.client
         layout = self._model._meta.layout
         record_id = self._model.record_id
 
@@ -662,10 +677,11 @@ class ModelManager:
         self._result_cache: Optional[CacheIterator[Model]] = None
         self._scripts_responses_cache: Optional[CacheIterator[ScriptsResponse]] = None
         self._result_pages: Optional[CacheIterator[Page]] = None
+        self._is_root_manager = True
 
     def _set_model_class(self, model_class: Type[Model]):
         self._model_class = model_class
-        self._client: FMClient = model_class._meta.client
+        self._client: Client = model_class._meta.client
         self._layout: str = model_class._meta.layout
 
     def _clone(self):
@@ -681,10 +697,14 @@ class ModelManager:
         qs._slice_start = self._slice_start
         qs._slice_stop = self._slice_stop
         qs._response_layout = self._response_layout
+        qs._is_root_manager = False
 
         return qs
 
     def _fetch_all(self):
+        if self._is_root_manager:
+            raise TypeError("Cannot execute a fetch directly on Model.objects. Use Model.objects.all()")
+
         if self._result_cache is None:
             self._execute_query()
 
@@ -809,11 +829,13 @@ class ModelManager:
         new_qs._chunk_size = size
         return new_qs
 
-    def prefetch_portal(self, portal: str, limit: int, offset: int = 1):
+    def prefetch_portal(self, portal: str, limit: int = None, offset: int = 1):
         self._assert_not_sliced()
 
-        if limit is None or limit < 0:
-            raise ValueError("Limit must a number > 0.")
+        if limit is None:
+            limit = A_REALLY_BIG_LIMIT
+        elif limit < 0:
+            raise ValueError("Limit must be None or a number > 0.")
 
         if offset is None or offset < 1:
             raise ValueError("Offset must a number >= 1.")
@@ -914,11 +936,11 @@ class ModelManager:
             return obj
         return None
 
-    def update(self, check_mod_id: bool = False, **kwargs):
+    def update(self, patch, check_mod_id: bool = False):
         self._fetch_all()
 
         for record in self:
-            record.update(**kwargs)
+            record.update(**patch)
             record.save(check_mod_id=check_mod_id)
 
     def delete(self):
@@ -1083,6 +1105,12 @@ class ModelManager:
 
     def _execute_get_record(self, record_id):
         result = self._client.get_record(layout=self._layout, record_id=record_id)
+        result.raise_exception_if_has_error()
+
+        return result
+
+    def _execute_duplicate_record(self, record_id):
+        result = self._client.duplicate_record(layout=self._layout, record_id=record_id)
         result.raise_exception_if_has_error()
 
         return result
@@ -1254,7 +1282,7 @@ class ModelMetaclass(type):
 
                 _meta_fm_fields[field_fm_name] = model_meta_field
 
-                if isinstance(attr_value, fmd_fields.FMFieldMixin):
+                if isinstance(attr_value, fmdata.FMFieldMixin):
                     attr_value._field_name = field_fm_name
 
             if isinstance(attr_value, PortalField):
@@ -1273,7 +1301,7 @@ class ModelMetaclass(type):
 
         schema_config = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="schema_config") or {}
 
-        client: FMClient = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="client")
+        client: Client = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="client")
         layout: str = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="layout")
 
         base_manager: Type[ModelManager] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
@@ -1300,7 +1328,7 @@ class ModelMetaclass(type):
 
         return cls
 
- # TODO Model to LayoutModel ?
+
 class Model(metaclass=ModelMetaclass):
     # Example of Meta:
     #
@@ -1438,7 +1466,7 @@ class Model(metaclass=ModelMetaclass):
             self.record_id = result.response.record_id
             self.mod_id = result.response.mod_id
         elif not record_id_exists and force_update:
-            raise ValueError("Cannot update a record without record_id.")
+            raise ValueError("Cannot update a record without record_id. model.save() it first.")
         elif record_id_exists and not force_insert:
             patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
@@ -1462,7 +1490,15 @@ class Model(metaclass=ModelMetaclass):
 
         return self
 
-    # TODO add support for duplicate()
+    def duplicate(self):
+        if self.record_id is None:
+            raise TypeError("Cannot duplicate a record without record_id. model.save() it first.")
+
+        result = self.objects._execute_duplicate_record(self.record_id)
+        new_record_id = result.response.record_id
+        new_mod_id = result.response.mod_id
+
+        return self.__class__(record_id=new_record_id, mod_id=new_mod_id, **self.to_dict())
 
     def delete(self):
         if self.record_id is None:
@@ -1486,7 +1522,7 @@ class Model(metaclass=ModelMetaclass):
 
         field = field_meta.field
 
-        if not isinstance(field, fmd_fields.Container):
+        if not isinstance(field, fmdata.Container):
             raise ValueError(f"Field '{field_name}' is not a fmd_fields.Container.")
 
         self.objects._execute_upload_container(

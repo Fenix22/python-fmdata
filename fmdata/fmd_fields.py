@@ -571,6 +571,7 @@ class Container(FMFieldMixin, fields.String):
 
 __all__ = [
     "FMFieldType",
+    "FMFieldMixin",
     "String",
     "Integer",
     "Float",
@@ -579,4 +580,5 @@ __all__ = [
     "Date",
     "DateTime",
     "Time",
+    "Container",
 ]

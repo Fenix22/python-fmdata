@@ -13,15 +13,9 @@ from pathlib import Path
 import requests
 
 import fmdata
-from fmdata import FMFieldType, fmd_fields
-from fmdata.fmclient import fm_version_gte, FMVersion
-from fmdata.orm import (
-    Model,
-    PortalField,
-    PortalModel,
-)
-from fmdata.results import FieldMetaData, ScriptResult
-from fmdata.session_providers import UsernamePasswordSessionProvider
+from fmdata import fm_version_gte, FMVersion, Model, PortalField, PortalModel, FMFieldType, ScriptResult, \
+    UsernamePasswordSessionProvider
+from fmdata.results import FieldMetaData
 from tests import env
 
 logger = logging.getLogger(__name__)
@@ -44,14 +38,14 @@ ADDRESS_PORTAL_TABLE_OCCURRANCE = "person_addresses"
 current_dir = Path(__file__).parent
 
 # Build a client using test env (tests/.env or process env)
-fm_client = fmdata.FMClient(
+fm_client = fmdata.Client(
     url=env("FMS_ADDRESS"),
     database=env("FMS_DB_NAME"),
     login_provider=UsernamePasswordSessionProvider(
         username=env("FMS_DB_USER"),
         password=env("FMS_DB_PASSWORD"),
     ),
-    filemaker_version=env("FMS_VERSION"),
+    version=env("FMS_VERSION"),
     verify_ssl=env("FMS_VERIFY_SSL", default=False),
 )
 
@@ -71,19 +65,19 @@ def error_if_no_env_server(f):
 # Portal models
 # --------------------------------------------------------------------------------------
 class Place(PortalModel):
-    street = fmd_fields.String(field_name=f"{ADDRESS_PORTAL_NAME}::Street", field_type=FMFieldType.Text)
+    street = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::Street", field_type=FMFieldType.Text)
 
 
 class AddressPortal(Place):
     class Meta:
         table_occurrence_name = ADDRESS_PORTAL_TABLE_OCCURRANCE
 
-    city = fmd_fields.String(field_name=f"{ADDRESS_PORTAL_NAME}::City", field_type=FMFieldType.Text)
-    zip = fmd_fields.String(field_name=f"{ADDRESS_PORTAL_NAME}::Zip", field_type=FMFieldType.Text)
-    code = fmd_fields.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Code", field_type=FMFieldType.Number)
-    zone = fmd_fields.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Zone", field_type=FMFieldType.Text)
-    reviewed_at = fmd_fields.DateTime(field_name=f"{ADDRESS_PORTAL_NAME}::ReviewedAt", field_type=FMFieldType.Text)
-    picture = fmd_fields.Container(field_name=f"{ADDRESS_PORTAL_NAME}::Picture")
+    city = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::City", field_type=FMFieldType.Text)
+    zip = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::Zip", field_type=FMFieldType.Text)
+    code = fmdata.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Code", field_type=FMFieldType.Number)
+    zone = fmdata.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Zone", field_type=FMFieldType.Text)
+    reviewed_at = fmdata.DateTime(field_name=f"{ADDRESS_PORTAL_NAME}::ReviewedAt", field_type=FMFieldType.Text)
+    picture = fmdata.Container(field_name=f"{ADDRESS_PORTAL_NAME}::Picture")
 
 
 # --------------------------------------------------------------------------------------
@@ -95,11 +89,11 @@ class AddressLayoutModel(Model):
         client = fm_client
         layout = ADDRESS_LAYOUT
 
-    the_city = fmd_fields.String(field_name=f"City", field_type=FMFieldType.Text)
-    code = fmd_fields.Integer(field_name=f"Code", field_type=FMFieldType.Number)
-    zone = fmd_fields.Integer(field_name=f"Zone", field_type=FMFieldType.Text)
-    reviewed_at = fmd_fields.DateTime(field_name=f"ReviewedAt", field_type=FMFieldType.Text)
-    picture = fmd_fields.Container(field_name=f"Picture")
+    the_city = fmdata.String(field_name=f"City", field_type=FMFieldType.Text)
+    code = fmdata.Integer(field_name=f"Code", field_type=FMFieldType.Number)
+    zone = fmdata.Integer(field_name=f"Zone", field_type=FMFieldType.Text)
+    reviewed_at = fmdata.DateTime(field_name=f"ReviewedAt", field_type=FMFieldType.Text)
+    picture = fmdata.Container(field_name=f"Picture")
 
 
 # Fake layout only to check that the Metaclass is working (so we inherit client and we override layout)
@@ -108,23 +102,23 @@ class LivingBeing(Model):
         client = fm_client
         layout = 'living_being'
 
-    full_name = fmd_fields.String(field_name="FullName", field_type=FMFieldType.Text)
+    full_name = fmdata.String(field_name="FullName", field_type=FMFieldType.Text)
 
 
 class Person(LivingBeing):
     class Meta:
         layout = PERSON_LAYOUT
 
-    creation_timestamp = fmd_fields.DateTime(field_name="CreationTimestamp", field_type=FMFieldType.Timestamp)
-    pk = fmd_fields.String(field_name="PrimaryKey", field_type=FMFieldType.Text)
-    birth_date = fmd_fields.Date(field_name="BirthDate", field_type=FMFieldType.Date)
-    join_time = fmd_fields.DateTime(field_name="JoinTime", field_type=FMFieldType.Timestamp)
-    wakes_at = fmd_fields.Time(field_name="WakesUpAt", field_type=FMFieldType.Time)
-    Score = fmd_fields.Float(field_type=FMFieldType.Number)
-    avg_time = fmd_fields.Decimal(field_name="AvgTime", field_type=FMFieldType.Number)
-    height = fmd_fields.Integer(field_name="Height", field_type=FMFieldType.Number)
-    is_active = fmd_fields.Bool(field_name="IsActive", field_type=FMFieldType.Number)
-    id_card_file = fmd_fields.Container(field_name="IDCardFile", field_type=FMFieldType.Container)
+    creation_timestamp = fmdata.DateTime(field_name="CreationTimestamp", field_type=FMFieldType.Timestamp)
+    pk = fmdata.String(field_name="PrimaryKey", field_type=FMFieldType.Text)
+    birth_date = fmdata.Date(field_name="BirthDate", field_type=FMFieldType.Date)
+    join_time = fmdata.DateTime(field_name="JoinTime", field_type=FMFieldType.Timestamp)
+    wakes_at = fmdata.Time(field_name="WakesUpAt", field_type=FMFieldType.Time)
+    Score = fmdata.Float(field_type=FMFieldType.Number)
+    avg_time = fmdata.Decimal(field_name="AvgTime", field_type=FMFieldType.Number)
+    height = fmdata.Integer(field_name="Height", field_type=FMFieldType.Number)
+    is_active = fmdata.Bool(field_name="IsActive", field_type=FMFieldType.Number)
+    id_card_file = fmdata.Container(field_name="IDCardFile", field_type=FMFieldType.Container)
 
     addresses = PortalField(model=AddressPortal, name=ADDRESS_PORTAL_NAME)
     addresses_sorted_by_city = PortalField(model=AddressPortal, name=ADDRESS_SORTED_BY_CITY_PORTAL_NAME)
@@ -416,11 +410,10 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(person.a_field_that_does_not_exist,
                              "This field does not exist in FM and should be ignored")
 
-
         # Check we can find them all back omitting the first one
         logging.info("Read people omitting 1 and check")
         result = Person.objects.find(full_name__contains=f"{cohort_tag}").omit(full_name__contains="-000")[:1000]
-        self.assertEqual(len(result), len(created)-1)
+        self.assertEqual(len(result), len(created) - 1)
 
         for person in result:
             self.assertEqual(person.full_name.endswith(f"000"), False)
@@ -489,6 +482,202 @@ class IntegrationTests(unittest.TestCase):
 
         logger.info("Deleting all person test data...")
         # Delete all people for this cohort tag
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+    def test_prefetch_portal(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+        person_data = {
+            "full_name": f"Test prefetch portal {cohort_tag}",
+            "birth_date": date(1990, 1, 1),
+        }
+
+        person = Person.objects.create(**person_data)
+
+        for i in range(5):
+            address_data = {
+                "street": f"Test prefetch portal {cohort_tag}-{i:03d}",
+                "city": f"Test city prefetch portal {cohort_tag}-{i:03d}",
+                "zip": f"Test zip prefetch portal {cohort_tag}-{i:03d}",
+            }
+
+            person.addresses.create(**address_data)
+
+        # Prefetch portals
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses")
+
+        self.assertEqual(len(people), 1)
+        self.assertEqual(len(people[0].addresses.all()), 5)
+
+        for address in people[0].addresses.all():
+            self.assertEqual(address.street.startswith(f"Test prefetch portal {cohort_tag}-"), True)
+            self.assertEqual(address.city.startswith(f"Test city prefetch portal {cohort_tag}-"), True)
+            self.assertEqual(address.zip.startswith(f"Test zip prefetch portal {cohort_tag}-"), True)
+
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", limit=2)
+        self.assertEqual(len(people), 1)
+        self.assertEqual(len(people[0].addresses.all()), 2)
+
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", offset=4)
+        self.assertEqual(len(people[0].addresses.all()), 2)
+        self.assertEqual(people[0].addresses.all()[0].street, f"Test prefetch portal {cohort_tag}-003")
+        self.assertEqual(people[0].addresses.all()[1].street, f"Test prefetch portal {cohort_tag}-004")
+
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", limit=1, offset=3)
+        self.assertEqual(len(people[0].addresses.all()), 1)
+        self.assertEqual(people[0].addresses.all()[0].street, f"Test prefetch portal {cohort_tag}-002")
+
+        logger.info("Deleting all person test data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+    def test_bulk_update_records(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+        created = []
+
+        for i in range(5):
+            person_data = {
+                "full_name": f"Test bulk update Person {cohort_tag}-{i:03d}",
+                "birth_date": date(1990 + i, 1 + (i % 12), 10 + i),
+                "wakes_at": time((6 + i) % 24, 30, 0),
+                "Score": 3.14 + i,
+                "avg_time": PythonDecimal("12.34") + PythonDecimal(i),
+                "is_active": True,
+            }
+
+            created.append(Person.objects.create(**person_data))
+
+        # Bulk update
+        qs = Person.objects.find(full_name__contains=f"{cohort_tag}").omit(full_name__contains="-000")[:1000]
+
+        qs.update({"is_active": False, "Score": 0})
+
+        for index, person in enumerate(created):
+            # Check that the first entry (-000) is untouched
+            if index == 0:
+                self.assertEqual(person.is_active, True)
+                self.assertEqual(person.Score, 3.14)
+
+                person.refresh_from_db()
+
+                self.assertEqual(person.is_active, True)
+                self.assertEqual(person.Score, 3.14)
+
+                continue
+
+            # Check that the rest of the entries are updated
+            self.assertEqual(person.is_active, True)
+            self.assertNotEqual(person.Score, 0)
+
+            person.refresh_from_db()
+
+            self.assertEqual(person.is_active, False)
+            self.assertEqual(person.Score, 0)
+
+        logger.info("Clearing testing data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+    def test_bulk_update_portal_records(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+        person_data = {
+            "full_name": f"Test bulk update portal records {cohort_tag}",
+            "birth_date": date(1990, 1, 1),
+            "wakes_at": time(6, 0, 0),
+            "Score": 3.14,
+            "avg_time": PythonDecimal("12.34"),
+            "is_active": True,
+        }
+
+        person = Person.objects.create(**person_data)
+
+        for i in range(5):
+            address_data = {
+                "street": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+                "city": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+                "zip": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+            }
+
+            person.addresses.create(**address_data)
+
+        # Test exception if we try to iterate/fetch without .all()
+        with self.assertRaises(Exception):
+            list(person.addresses)
+
+        # Bulk update portals
+        person.addresses.all().update({"zip": "0."})
+
+        addresses = person.addresses.all()
+
+        for address in addresses:
+            self.assertEqual(address.zip, "0.")
+            self.assertEqual(address.street.startswith(f"Test bulk update portal records {cohort_tag}-"), True)
+            self.assertEqual(address.city.startswith(f"Test bulk update portal records {cohort_tag}-"), True)
+
+        logger.info("Clearing testing data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+
+    def test_duplicate_records(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+        person_data = {
+            "full_name": f"Test duplicate records {cohort_tag}",
+            "birth_date": date(1990, 1, 1),
+            "wakes_at": time(6, 0, 0),
+            "Score": 3.14,
+            "avg_time": PythonDecimal("12.34"),
+            "is_active": True,
+        }
+
+        # Create person
+        person = Person.objects.create(**person_data)
+
+        # Duplicate and check data
+        person_dup = person.duplicate()
+
+        self.assertNotEqual(person.record_id, person_dup.record_id)
+        self.assertNotEqual(None, person_dup.mod_id)
+        self.assertEqual(person.full_name, person_dup.full_name)
+        self.assertEqual(person.birth_date, person_dup.birth_date)
+        self.assertEqual(person.wakes_at, person_dup.wakes_at)
+        self.assertEqual(person.Score, person_dup.Score)
+        self.assertEqual(person.avg_time, person_dup.avg_time)
+        self.assertEqual(person.is_active, person_dup.is_active)
+
+        # Refresh from db and recheck data
+
+        person_dup.refresh_from_db()
+
+        self.assertNotEqual(person.record_id, person_dup.record_id)
+        self.assertNotEqual(None, person_dup.mod_id)
+        self.assertEqual(person.full_name, person_dup.full_name)
+        self.assertEqual(person.birth_date, person_dup.birth_date)
+        self.assertEqual(person.wakes_at, person_dup.wakes_at)
+        self.assertEqual(person.Score, person_dup.Score)
+        self.assertEqual(person.avg_time, person_dup.avg_time)
+        self.assertEqual(person.is_active, person_dup.is_active)
+
+        # Create a person without save() and check raise error
+
+        person = Person(**person_data)
+
+        with self.assertRaises(Exception):
+            person.duplicate()
+
+        logger.info("Deleting all person test data...")
         Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
 
     def test_chunking(self):
@@ -776,6 +965,9 @@ class IntegrationTests(unittest.TestCase):
 
         logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
         Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+        with self.assertRaises(Exception):
+            list(Person.objects)
 
         created_people = []
         for i in range(3):

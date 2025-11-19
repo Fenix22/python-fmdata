@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo
 
 from marshmallow import ValidationError
 
-from fmdata import fmd_fields, FMFieldType
+import fmdata
+from fmdata import FMFieldType
+
 
 # TODO update with all the changes README (fields, avoid_prefetch, names)
 # --------------------------------------------------------------------------------------
@@ -17,7 +19,7 @@ from fmdata import fmd_fields, FMFieldType
 class FMFieldsSerializationTests(unittest.TestCase):
     # ---- String ----
     def test_string_with_text_fieldtype(self):
-        fld = fmd_fields.String(field_type=FMFieldType.Text)
+        fld = fmdata.String(field_type=FMFieldType.Text)
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("", fld._serialize("", "x", {}))
         self.assertEqual("d21dwa", fld._serialize("d21dwa", "x", {}))
@@ -42,7 +44,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize(decimal.Decimal("23"), "x", {})
 
     def test_string_with_number_fieldtype(self):
-        fld = fmd_fields.String(field_type=FMFieldType.Number)
+        fld = fmdata.String(field_type=FMFieldType.Number)
         # serialize requires str and returns as-is
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("25", fld._serialize("25", "x", {}))
@@ -57,14 +59,15 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual("", fld._deserialize("", "x", {}))
         self.assertEqual("123", fld._deserialize(123, "x", {}))
         self.assertEqual("123.54", fld._deserialize("123.54", "x", {}))
-        self.assertEqual("123.4521312321321321213213321231321213321231231321123321", fld._deserialize("123.4521312321321321213213321231321213321231231321123321", "x", {}))
+        self.assertEqual("123.4521312321321321213213321231321213321231231321123321",
+                         fld._deserialize("123.4521312321321321213213321231321213321231231321123321", "x", {}))
 
-        #Ensure float number are not supported form filemaker (we use string for decimal fields instead)
+        # Ensure float number are not supported form filemaker (we use string for decimal fields instead)
         with self.assertRaises(ValidationError):
             fld._deserialize(123.231, "x", {})
 
     def test_string_with_date_fieldtype(self):
-        fld = fmd_fields.String(field_type=FMFieldType.Date)
+        fld = fmdata.String(field_type=FMFieldType.Date)
 
         d_iso = "2024-05-18"
 
@@ -79,7 +82,6 @@ class FMFieldsSerializationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fld._serialize("2024-99-18", "x", {})
 
-
         self.assertEqual(None, fld._deserialize(None, "x", {}))
         self.assertEqual(None, fld._deserialize("", "x", {}))
         # Deserialize back to ISO
@@ -89,7 +91,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize(123, "x", {})
 
     def test_string_with_timestamp_fieldtype(self):
-        fld = fmd_fields.String(field_type=FMFieldType.Timestamp)
+        fld = fmdata.String(field_type=FMFieldType.Timestamp)
 
         dt_iso = "2024-05-18T06:30:05"  # Time zone info will be lost on serialize/deserialize
         dt_iso_tz = "2024-05-18T06:30:05+03:00"  # Time zone info will be lost on serialize/deserialize
@@ -120,7 +122,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("2024-05-18T06:30:05+03:00", "x", {})
 
     def test_string_with_time_fieldtype(self):
-        fld = fmd_fields.String(field_type=FMFieldType.Time)
+        fld = fmdata.String(field_type=FMFieldType.Time)
 
         t_iso = "06:30:05"
 
@@ -136,12 +138,11 @@ class FMFieldsSerializationTests(unittest.TestCase):
         # Deserialize back to ISO
         self.assertEqual(t_iso, fld._deserialize("06:30:05", "x", {}))
 
-
         with self.assertRaises(ValidationError):
             fld._deserialize(123, "x", {})
 
     def test_string_with_container_fieldtype(self):
-        fld = fmd_fields.String(field_type=FMFieldType.Container)
+        fld = fmdata.String(field_type=FMFieldType.Container)
         # Container fieldtype behaves like Text for String fields
         self.assertEqual(None, fld._deserialize(None, "x", {}))
         self.assertEqual("", fld._deserialize("", "x", {}))
@@ -152,7 +153,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- Integer ----
     def test_integer_with_Number_fieldtype(self):
-        fld = fmd_fields.Integer(field_type=FMFieldType.Number)
+        fld = fmdata.Integer(field_type=FMFieldType.Number)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual(42, fld._serialize(42, "x", {}))
@@ -174,7 +175,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("ciao", "x", {})
 
     def test_integer_with_text_fieldtype(self):
-        fld = fmd_fields.Integer(field_type=FMFieldType.Text)
+        fld = fmdata.Integer(field_type=FMFieldType.Text)
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("7", fld._serialize(7, "x", {}))
         self.assertEqual(None, fld._deserialize("", "x", {}))
@@ -188,7 +189,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- Float ----
     def test_float_with_number_fieldtype(self):
-        fld = fmd_fields.Float(field_type=FMFieldType.Number)
+        fld = fmdata.Float(field_type=FMFieldType.Number)
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual(42, fld._serialize(42, "x", {}))
         self.assertEqual(3.14, fld._serialize(3.14, "x", {}))
@@ -215,7 +216,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize(3.14, "x", {})
 
     def test_float_with_text_fieldtype(self):
-        fld = fmd_fields.Float(field_type=FMFieldType.Text)
+        fld = fmdata.Float(field_type=FMFieldType.Text)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("2.5", fld._serialize(2.5, "x", {}))
@@ -240,7 +241,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- Decimal ----
     def test_decimal_with_number_fieldtype(self):
-        fld = fmd_fields.Decimal(field_type=FMFieldType.Number)
+        fld = fmdata.Decimal(field_type=FMFieldType.Number)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("12.34", fld._serialize(PythonDecimal("12.34"), "x", {}))
@@ -264,7 +265,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("not-a-decimal", "x", {})
 
     def test_decimal_with_text_fieldtype(self):
-        fld = fmd_fields.Decimal(field_type=FMFieldType.Text)
+        fld = fmdata.Decimal(field_type=FMFieldType.Text)
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("99.0001", fld._serialize(PythonDecimal("99.0001"), "x", {}))
 
@@ -286,7 +287,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- Date ----
     def test_date_with_date_fieldtype(self):
-        fld = fmd_fields.Date(field_type=FMFieldType.Date)
+        fld = fmdata.Date(field_type=FMFieldType.Date)
         d = date(2024, 5, 18)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
@@ -316,12 +317,12 @@ class FMFieldsSerializationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             fld._deserialize("21:10:02", "x", {})
 
-        #If ISO format instead of US format
+        # If ISO format instead of US format
         with self.assertRaises(ValidationError):
             fld._deserialize("2024-05-18", "x", {})
 
     def test_date_with_text_fieldtype(self):
-        fld = fmd_fields.Date(field_type=FMFieldType.Text)
+        fld = fmdata.Date(field_type=FMFieldType.Text)
         d = date(2024, 5, 18)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
@@ -356,7 +357,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- DateTime ----
     def test_datetime_with_timestamp_fieldtype(self):
-        fld = fmd_fields.DateTime(field_type=FMFieldType.Timestamp)
+        fld = fmdata.DateTime(field_type=FMFieldType.Timestamp)
         dt = datetime(2024, 5, 18, 6, 30, 5)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
@@ -393,7 +394,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("06:30:05", "x", {})
 
     def test_datetime_with_text_fieldtype(self):
-        fld = fmd_fields.DateTime(field_type=FMFieldType.Text)
+        fld = fmdata.DateTime(field_type=FMFieldType.Text)
         dt = datetime(2024, 5, 18, 6, 30, 5)
         dt_tz = dt.replace(tzinfo=ZoneInfo("Europe/Paris"))
 
@@ -434,7 +435,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- Time ----
     def test_time_with_time_fieldtype(self):
-        fld = fmd_fields.Time(field_type=FMFieldType.Time)
+        fld = fmdata.Time(field_type=FMFieldType.Time)
         t = time(6, 30, 5)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
@@ -467,7 +468,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("2024-05-18T06:30:05", "x", {})
 
     def test_time_with_text_fieldtype(self):
-        fld = fmd_fields.Time(field_type=FMFieldType.Text)
+        fld = fmdata.Time(field_type=FMFieldType.Text)
         t = time(6, 30, 5)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
@@ -501,11 +502,11 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
     # ---- Bool ----
     def test_bool_truthy_falsy(self):
-        fld = fmd_fields.Bool(field_type=FMFieldType.Number,
-                              truthy={"Y", 1, "True"},
-                              falsy={"N", 0, "False"},
-                              true_value="It'strue",
-                              false_value="It'sfalse")
+        fld = fmdata.Bool(field_type=FMFieldType.Number,
+                          truthy={"Y", 1, "True"},
+                          falsy={"N", 0, "False"},
+                          true_value="It'strue",
+                          false_value="It'sfalse")
 
         self.assertEqual("It'strue", fld._serialize(True, "x", {}))
         self.assertEqual("It'sfalse", fld._serialize(False, "x", {}))
@@ -521,11 +522,11 @@ class FMFieldsSerializationTests(unittest.TestCase):
 
         truthy_it = iter([2, "SuperTrue", "AlbsolutelyTrue"])
         falsy_it = iter([-1, "AlbsolutelyFalse", "MostlyFalse"])
-        fld = fmd_fields.Bool(field_type=FMFieldType.Number,
-                              truthy=truthy_it,
-                              falsy=falsy_it,
-                              true_value="It'strue",
-                              false_value="It'sfalse")
+        fld = fmdata.Bool(field_type=FMFieldType.Number,
+                          truthy=truthy_it,
+                          falsy=falsy_it,
+                          true_value="It'strue",
+                          false_value="It'sfalse")
 
         self.assertEqual("It'strue", fld._serialize(True, "x", {}))
         self.assertEqual("It'sfalse", fld._serialize(False, "x", {}))
@@ -537,9 +538,8 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual(False, fld._deserialize(-1, "x", {}))
         self.assertEqual(False, fld._deserialize("AlbsolutelyFalse", "x", {}))
 
-
     def test_bool_with_text_fieldtype(self):
-        fld = fmd_fields.Bool(field_type=FMFieldType.Text)
+        fld = fmdata.Bool(field_type=FMFieldType.Text)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("1", fld._serialize(True, "x", {}))
@@ -573,7 +573,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("something_abnormal", "x", {})
 
     def test_bool_with_number_fieldtype(self):
-        fld = fmd_fields.Bool(field_type=FMFieldType.Number)
+        fld = fmdata.Bool(field_type=FMFieldType.Number)
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("1", fld._serialize(True, "x", {}))
@@ -609,7 +609,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
     # ---- Container ----
 
     def test_container_behaviour(self):
-        fld = fmd_fields.Container(field_name="ContainerField[2]", field_type=FMFieldType.Text)  # field_type ignored
+        fld = fmdata.Container(field_name="ContainerField[2]", field_type=FMFieldType.Text)  # field_type ignored
         # read_only enforced; serialize must raise
         with self.assertRaises(ValueError):
             fld._serialize("anything", "x", {})
@@ -621,11 +621,10 @@ class FMFieldsSerializationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             fld._deserialize(123, "x", {})
 
-
     def test_container_bracket_repetition_extraction(self):
-        fld = fmd_fields.Container(field_name="ContainerField[3]")
+        fld = fmdata.Container(field_name="ContainerField[3]")
         # _get_last_bracket_content is internal; behavior is not exposed directly, but construction should not error
-        self.assertIsInstance(fld, fmd_fields.Container)
+        self.assertIsInstance(fld, fmdata.Container)
 
     def _allowed_types_by_class(self):
         return {
@@ -650,7 +649,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
                         # Container is special and have hard codec Container field type
                         continue
 
-                    fld_class = getattr(fmd_fields, class_name)
+                    fld_class = getattr(fmdata.fmd_fields, class_name)
                     with self.subTest(f"{class_name} with field type {ft} should raise"):
                         with self.assertRaises(ValidationError):
                             fld_class(field_type=ft)
