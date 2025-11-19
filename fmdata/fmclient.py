@@ -703,7 +703,7 @@ class FMClient:
         session = requests.Session()
         session.verify = verify
 
-        response = requests.request(
+        response = session.request(
             method=method,
             headers=request_headers,
             url=url,
