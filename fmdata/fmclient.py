@@ -25,6 +25,7 @@ from fmdata.utils import clean_none
 
 logger = logging.getLogger("fmdata")
 
+
 # TODO rename to fmd_client? Or just client?
 
 class FMVersion(IntEnum):
@@ -531,7 +532,6 @@ class FMClient:
 
         return GetProductInfoResult(self.call_filemaker(method='GET', path=path, use_session_token=False, **kwargs))
 
-
     def get_databases(self,
                       api_version: Optional[str] = "v1",
                       username: Optional[str] = None,
@@ -676,11 +676,6 @@ class FMClient:
                 f"retry timeout is {self.too_fast_login_retry_timeout * 1000:.0f}ms."
             )
 
-    def _request(self, *args, **kwargs) -> requests.Response:
-        return requests.request(*args,
-                                timeout=(self._pop_connection_timeout(kwargs), self._pop_read_timeout(kwargs)),
-                                **kwargs)
-
     def call_filemaker(self, method: str,
                        path: str,
                        headers: Optional[Dict] = None,
@@ -703,16 +698,21 @@ class FMClient:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"FileMaker request: method={method} url={url} headers={request_headers} body={request_data}")
 
-        response = self._request(
+        verify = self._pop_verify_ssl(kwargs)
+
+        session = requests.Session()
+        session.verify = verify
+
+        response = requests.request(
             method=method,
             headers=request_headers,
             url=url,
             data=request_data,
-            verify=self._pop_verify_ssl(kwargs),
+            verify=verify,
             params=params,
+            timeout=(self._pop_connection_timeout(kwargs), self._pop_read_timeout(kwargs)),
             **self._pop_http_client_extra_params(kwargs),
-            **kwargs
-        )
+            **kwargs)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"FileMaker response: url={url} headers={response.headers} body={response.content}")
@@ -890,7 +890,8 @@ def portal_page_generator(
 
 def assert_fm_version_gte(client: FMClient, version: FMVersion):
     if not fm_version_gte(client, version):
-        raise IncompatibleVersionException(f"FileMaker version {version.name} is required to perform this operation. Current version is {client.filemaker_version.name}")
+        raise IncompatibleVersionException(
+            f"FileMaker version {version.name} is required to perform this operation. Current version is {client.filemaker_version.name}")
 
 
 def fm_version_gte(client: FMClient, version: FMVersion):
