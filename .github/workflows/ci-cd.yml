@@ -54,7 +54,7 @@ jobs:
         shell: powershell
         run: |
           $env:ENV_FILE = ".env"
-          coverage run --data-file=.coverage.fms17 -m unittest discover -s tests -t tests
+          coverage run -m unittest discover -s tests -t tests
           coverage xml -o coverage_fms17.xml
 
       - name: Upload coverage artifact (FMS17)
