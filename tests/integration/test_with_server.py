@@ -73,7 +73,7 @@ class Place(PortalModel):
 
 class AddressPortal(Place):
     class Meta:
-        table_occurrence_name = ADDRESS_PORTAL_TABLE_OCCURRANCE
+        table_occurrence = ADDRESS_PORTAL_TABLE_OCCURRANCE
 
     city = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::City", field_type=FMFieldType.Text)
     zip = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::Zip", field_type=FMFieldType.Text)
@@ -976,7 +976,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(len(addresses), 0)
 
         # But first, a last test for testing create/delete on portals through the person manager
-        for i in range(5):
+        for _ in range(5):
             person.addresses.create(
                 city="Test! City!",
             )
@@ -1083,7 +1083,7 @@ class IntegrationTests(unittest.TestCase):
 
         for i in range(11):
             # Create a new person record
-            person = Person.objects.create(
+            Person.objects.create(
                 full_name=full_name(i),
                 Score=score(i),
                 avg_time=avg_time(i),

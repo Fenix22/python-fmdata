@@ -13,6 +13,7 @@ from fmdata.cache_iterator import CacheIterator
 from fmdata.client import portal_page_generator, fm_version_gte
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
 from fmdata.results import PageIterator, PortalData, PortalDataList, PortalPageIterator, Page, PortalPage
+from fmdata.utils import check_field_name
 
 ERROR_MESSAGE_NEGATIVE_INDEXING = "Negative indexing is not supported."
 ERROR_MESSAGE_RECORD_ID_REQUIRED = "Cannot update a record without record_id."
@@ -97,7 +98,7 @@ class PortalField:
 @dataclasses.dataclass
 class PortalModelMeta:
     portal_name: str
-    table_occurrence_name: str
+    table_occurrence: str
     base_schema: Type[FileMakerSchema]
     schema_config: dict
     fields: dict[str, ModelMetaField]
@@ -125,6 +126,8 @@ class PortalMetaclass(type):
             attr_value = getattr(cls, attr_name)
 
             if isinstance(attr_value, fields.Field):
+                check_field_name(attr_name)
+
                 schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
@@ -145,14 +148,14 @@ class PortalMetaclass(type):
         schema_config = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="schema_config") or {}
 
         portal_name = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="portal_name")
-        table_occurrence_name = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
-                                                   attribute_name="table_occurrence_name")
+        table_occurrence = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
+                                                   attribute_name="table_occurrence")
 
         cls._meta = PortalModelMeta(
             base_schema=base_schema_cls,
             schema_config=schema_config,
             portal_name=portal_name,
-            table_occurrence_name=table_occurrence_name,
+            table_occurrence=table_occurrence,
             fields=_meta_fields,
             fm_fields=_meta_fm_fields
         )
@@ -399,7 +402,7 @@ class PortalModel(metaclass=PortalMetaclass):
         self.record_id: Optional[str] = kwargs.pop("record_id", None)
         self.mod_id: Optional[str] = kwargs.pop("mod_id", None)
         self._portal_name: str = self._meta.portal_name or kwargs.pop("portal_name")
-        self._table_occurrence_name: str = self._meta.table_occurrence_name or kwargs.pop("table_occurrence_name")
+        self._table_occurrence: str = self._meta.table_occurrence or kwargs.pop("table_occurrence")
 
         if self.model is None:
             raise ValueError("Model (model) is required to create a portal model.")
@@ -407,7 +410,7 @@ class PortalModel(metaclass=PortalMetaclass):
         if self._portal_name is None:
             raise ValueError("Portal name (portal_name) is required to create a portal model.")
 
-        if self._table_occurrence_name is None:
+        if self._table_occurrence is None:
             raise ValueError("Table name (table_name) is required to create a portal model.")
 
         _from_db: Optional[dict] = kwargs.pop("_from_db", None)
@@ -498,7 +501,7 @@ class PortalModel(metaclass=PortalMetaclass):
         model_field_data = {}
         portal_model_updated_fields_fm_name = []
 
-        table_name_prefix = self._table_occurrence_name + "::"
+        table_name_prefix = self._table_occurrence + "::"
         field_data = self._dump_fields()
         for key, value in field_data.items():
             if key.startswith(table_name_prefix):
@@ -1240,6 +1243,8 @@ class ModelMetaclass(type):
             attr_value = getattr(cls, attr_name)
 
             if isinstance(attr_value, fields.Field):
+                check_field_name(attr_name)
+
                 schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
@@ -1255,6 +1260,8 @@ class ModelMetaclass(type):
                     attr_value._field_name = field_fm_name
 
             if isinstance(attr_value, PortalField):
+                check_field_name(attr_name)
+
                 schema_portal_fields[attr_name] = attr_value
                 model_portal_meta_field = ModelMetaPortalField(name=attr_name, field=attr_value)
                 _meta_portal_fields[attr_name] = model_portal_meta_field
@@ -1479,7 +1486,7 @@ class Model(metaclass=ModelMetaclass):
                     relative_item = new_portals_records_response[current_index]
                     current_index = current_index + 1
 
-                    if relative_item.table_name == portal._table_occurrence_name:
+                    if relative_item.table_name == portal._table_occurrence:
                         # Found!
                         portal.record_id = relative_item.record_id
                         portal.mod_id = relative_item.mod_id
