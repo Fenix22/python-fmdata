@@ -35,6 +35,9 @@ ADDRESS_LAYOUT = "person_address"
 ADDRESS_PORTAL_NAME = "person_addresses"
 ADDRESS_SORTED_BY_CITY_PORTAL_NAME = "portal_person_addresses_sorted_by_city"
 ADDRESS_PORTAL_TABLE_OCCURRANCE = "person_addresses"
+
+ADDRESS_CITY_INFO_TABLE_OCCURRANCE = "address_city_info"
+
 current_dir = Path(__file__).parent
 
 # Build a client using test env (tests/.env or process env)
@@ -78,6 +81,8 @@ class AddressPortal(Place):
     zone = fmdata.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Zone", field_type=FMFieldType.Text)
     reviewed_at = fmdata.DateTime(field_name=f"{ADDRESS_PORTAL_NAME}::ReviewedAt", field_type=FMFieldType.Text)
     picture = fmdata.Container(field_name=f"{ADDRESS_PORTAL_NAME}::Picture")
+
+    population = fmdata.Integer(field_name=f"{ADDRESS_CITY_INFO_TABLE_OCCURRANCE}::Population", field_type=FMFieldType.Number)
 
 
 # --------------------------------------------------------------------------------------
@@ -321,7 +326,6 @@ class IntegrationTests(unittest.TestCase):
                     "reviewed_at": datetime(1 + 1 * 100 * i * e, (5 + e) % 12, 18, (6 + e) % 24, 30, 5),
                 }
 
-                # TODO add support also for .new() (without saving immediately)
                 person.addresses.create(
                     **address_data
                 )
@@ -600,14 +604,43 @@ class IntegrationTests(unittest.TestCase):
 
         person = Person.objects.create(**person_data)
 
+        #Create 5 with new()
+        created_addresses=[]
         for i in range(5):
             address_data = {
                 "street": f"Test bulk update portal records {cohort_tag}-{i:03d}",
                 "city": f"Test bulk update portal records {cohort_tag}-{i:03d}",
                 "zip": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+                "population": 300
             }
 
-            person.addresses.create(**address_data)
+            address = person.addresses.new(**address_data)
+            created_addresses.append(address)
+
+        person.save(portals=created_addresses)
+
+        if fm_version_gte(fm_client, FMVersion.V18):
+            logger.info("Checking that, in FMS 18+, the portal records have record_id and mod_id set...")
+            for address in created_addresses:
+                self.assertIsNotNone(address.record_id)
+                self.assertIsNotNone(address.mod_id)
+
+
+        #Create 5 with create()
+        for i in range(5,10):
+            address_data = {
+                "street": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+                "city": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+                "zip": f"Test bulk update portal records {cohort_tag}-{i:03d}",
+                "population": 300
+            }
+
+            address = person.addresses_sorted_by_city.create(**address_data)
+
+            if fm_version_gte(fm_client, FMVersion.V18):
+                self.assertIsNotNone(address)
+                self.assertIsNotNone(address.record_id)
+                self.assertIsNotNone(address.mod_id)
 
         # Test exception if we try to iterate/fetch without .all()
         with self.assertRaises(Exception):
@@ -618,10 +651,12 @@ class IntegrationTests(unittest.TestCase):
 
         addresses = person.addresses.all()
 
-        for address in addresses:
+        for index, address in enumerate(addresses):
             self.assertEqual(address.zip, "0.")
-            self.assertEqual(address.street.startswith(f"Test bulk update portal records {cohort_tag}-"), True)
-            self.assertEqual(address.city.startswith(f"Test bulk update portal records {cohort_tag}-"), True)
+            self.assertEqual(address.street, f"Test bulk update portal records {cohort_tag}-{index:03d}")
+            self.assertEqual(address.city, f"Test bulk update portal records {cohort_tag}-{index:03d}")
+
+        self.assertEqual(len(addresses), 10)
 
         logger.info("Clearing testing data...")
         Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()

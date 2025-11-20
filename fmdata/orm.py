@@ -297,13 +297,20 @@ class PortalManager:
         new_qs._chunk_size = size
         return new_qs
 
-    def create(self, **kwargs):
+    def new(self, **kwargs):
         portal = self._meta_portal.field.model(model=self._model, portal_name=self._meta_portal.filemaker_name,
                                                **kwargs)
+        return portal
+
+    def create(self, **kwargs):
+        portal = self.new(**kwargs)
         portal.save()
 
-        # We cannot return it because it has no record_id yet so is useless and dangerous!
-        # TODO in new versions of filemaker it could be possible to return it with record_id
+        if portal.record_id is None:
+            # We cannot return it because it has no record_id yet so is useless and dangerous!
+            return None
+
+        return portal
 
     def update(self, patch):
         self._fetch_all()
@@ -462,33 +469,11 @@ class PortalModel(metaclass=PortalMetaclass):
         record_id_exists = self.record_id is not None
 
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
-            patch = patch_from_model_or_portal(model_or_portal=self,
-                                               only_updated_fields=only_updated_fields,
-                                               update_fields=None)
-
-            self.model.objects._execute_create_portal_record(
-                record_id=self.model.record_id,
-                portal_name=self._portal_name,
-                portal_field_data=patch,
-            )
+            self.model.save(force_update=True, update_fields=[], portals=[self])
         elif not record_id_exists and force_update:
             raise ValueError("Cannot update a record without record_id.")
         elif record_id_exists and not force_insert:
-
-            patch = patch_from_model_or_portal(model_or_portal=self,
-                                               only_updated_fields=only_updated_fields,
-                                               update_fields=update_fields)
-
-            used_mod_id = self.mod_id if check_mod_id else None
-
-            self.model.objects._execute_edit_portal_record(
-                record_id=self.model.record_id,
-                portal_name=self._portal_name,
-                portal_field_data=patch,
-                portal_record_id=self.record_id,
-                portal_mod_id=used_mod_id,
-            )
-
+            self.model.save(force_update=True, update_fields=[], portals=[self])
         else:
             raise ValueError("Impossible case")
 
@@ -1172,34 +1157,6 @@ class ModelManager:
 
         return result
 
-    def _execute_create_portal_record(self, record_id, portal_name, portal_field_data):
-        result = self._client.edit_record(
-            record_id=record_id,
-            layout=self._layout,
-            field_data={},
-            portal_data={portal_name: [portal_field_data]})
-
-        result.raise_exception_if_has_error()
-        return result
-
-    def _execute_edit_portal_record(self, record_id, portal_name, portal_field_data, portal_record_id, portal_mod_id):
-
-        portal_data: PortalsInput = add_portal_record_to_portal_data(
-            portal_data={},
-            portal_name=portal_name,
-            portal_record_id=portal_record_id,
-            portal_mod_id=portal_mod_id,
-            portal_field_data=portal_field_data)
-
-        result = self._client.edit_record(
-            record_id=record_id,
-            layout=self._layout,
-            field_data={},
-            portal_data=portal_data)
-
-        result.raise_exception_if_has_error()
-        return result
-
     def get_delete_related_field_data(self, portals_to_delete: Iterable[Tuple[str, str]]) -> Dict[str, Any]:
 
         related_records = []
@@ -1431,6 +1388,8 @@ class Model(metaclass=ModelMetaclass):
 
         # Portal save
         portals_input: PortalsInput = {}
+        new_portals = []
+        total_expected_new_portals_entries = 0
 
         for config in portals:
             if isinstance(config, PortalModel):
@@ -1440,7 +1399,7 @@ class Model(metaclass=ModelMetaclass):
             portal = config.portal
             model: Model = portal.model
 
-            if not model == self:
+            if model != self:
                 raise ValueError("Portal model must be related to this record.")
 
             used_mod_id = portal.mod_id if config.check_mod_id else None
@@ -1448,6 +1407,10 @@ class Model(metaclass=ModelMetaclass):
             patch = patch_from_model_or_portal(model_or_portal=portal,
                                                only_updated_fields=config.only_updated_fields,
                                                update_fields=config.update_fields)
+
+            if portal.record_id is None:
+                new_portals.append((portal, patch))
+                total_expected_new_portals_entries += len(patch)
 
             add_portal_record_to_portal_data(portal_data=portals_input,
                                              portal_name=portal._portal_name,
@@ -1483,10 +1446,37 @@ class Model(metaclass=ModelMetaclass):
                                                        portals_data=portals_input,
                                                        portals_to_delete=portals_to_delete_record_ids)
 
-            if result is not None:
-                self.mod_id = result.response.mod_id
+            self.mod_id = result.response.mod_id
         else:
             raise ValueError("Impossible case")
+
+        # Read the result and update the related portal.record_id/mod_id
+        # It seems that FileMaker return X entries, one for each field modified in each portal, in the same order as they were sent.
+        new_portals_records_response = result.response.new_portal_record_info
+        if new_portals_records_response is not None:
+
+            if len(new_portals_records_response) != total_expected_new_portals_entries:
+                raise ValueError(
+                    "Unexpected number of new portal records returned by the Data API! Please open an issue on GitHub.")
+
+            current_index = 0
+            for (portal, patch) in new_portals:
+                initial_index = current_index
+
+                for key, value in patch.items():
+                    relative_item = new_portals_records_response[current_index]
+                    current_index = current_index + 1
+
+                    if relative_item.table_name == portal._table_occurrence_name:
+                        # Found!
+                        portal.record_id = relative_item.record_id
+                        portal.mod_id = relative_item.mod_id
+                        break
+
+                if portal.record_id is None:
+                    raise ValueError("Unexpected error: record_id not found in new_portal_record_info")
+
+                current_index = initial_index + len(patch)
 
         return self
 

@@ -334,7 +334,37 @@ class FindPaginatedResult(PaginatedRecordResult):
 
 
 @dataclass(frozen=True)
-class CreateRecordResponse(BaseProxy):
+class NewPortalRecordInfo(BaseProxy):
+
+    @property
+    def table_name(self) -> Optional[str]:
+        return self.raw_content.get('tableName', None)
+
+    @property
+    def record_id(self) -> Optional[str]:
+        return self.raw_content.get('recordId', None)
+
+    @property
+    def mod_id(self) -> Optional[str]:
+        return self.raw_content.get('modId', None)
+
+
+
+@dataclass(frozen=True)
+class CommonCreateEditResponse(BaseProxy):
+
+    @cached_property
+    def new_portal_record_info(self) -> Optional[List[NewPortalRecordInfo]]:
+        return optional_list(self.new_portal_record_info_iterator)
+
+    @property
+    def new_portal_record_info_iterator(self) -> Optional[Iterator[PortalDataInfo]]:
+        new_portal_record_info_list: Optional[List[Dict[str, Any]]] = self.raw_content.get('newPortalRecordInfo', None)
+        return (NewPortalRecordInfo(portal_data_info) for portal_data_info in
+                new_portal_record_info_list) if new_portal_record_info_list is not None else None
+
+@dataclass(frozen=True)
+class CreateRecordResponse(CommonCreateEditResponse):
 
     @property
     def mod_id(self) -> str:
@@ -374,7 +404,7 @@ class DuplicateRecordResult(BaseResult):
 
 
 @dataclass(frozen=True)
-class EditRecordResponse(BaseProxy):
+class EditRecordResponse(CommonCreateEditResponse):
 
     @property
     def mod_id(self) -> str:
