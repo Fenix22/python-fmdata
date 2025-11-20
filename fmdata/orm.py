@@ -14,8 +14,9 @@ from fmdata.client import portal_page_generator, fm_version_gte
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
 from fmdata.results import PageIterator, PortalData, PortalDataList, PortalPageIterator, Page, PortalPage
 
-FM_DATE_FORMAT = "%m/%d/%Y"
-FM_DATE_TIME_FORMAT = "%m/%d/%Y %I:%M:%S %p"
+ERROR_MESSAGE_NEGATIVE_INDEXING = "Negative indexing is not supported."
+ERROR_MESSAGE_RECORD_ID_REQUIRED = "Cannot update a record without record_id."
+
 A_REALLY_BIG_LIMIT = 1000000000
 
 
@@ -23,9 +24,8 @@ def get_meta_attribute(cls, attrs_meta, attribute_name: str, default=None) -> An
     """
     Retrieve an attribute from the Meta class, looking up the inheritance chain.
     """
-    if attrs_meta:
-        if hasattr(attrs_meta, attribute_name):
-            return getattr(attrs_meta, attribute_name)
+    if attrs_meta is not None and hasattr(attrs_meta, attribute_name):
+        return getattr(attrs_meta, attribute_name)
 
     for base in cls.mro():
         if hasattr(base, "_meta"):
@@ -37,10 +37,7 @@ def get_meta_attribute(cls, attrs_meta, attribute_name: str, default=None) -> An
 
 
 class FileMakerSchema(Schema):
-    class Meta:
-        datetimeformat = FM_DATE_TIME_FORMAT
-        dateformat = FM_DATE_FORMAT
-
+    pass
 
 @dataclasses.dataclass(frozen=True)
 class ScriptsResponse:
@@ -108,17 +105,17 @@ class PortalModelMeta:
 
 
 class PortalMetaclass(type):
-    def __new__(mcls, name, bases, attrs):
+    def __new__(mcs, name, bases, attrs):
 
         # Also ensure initialization is only performed for subclasses of Model
         # (excluding Model class itself).
         parents = [b for b in bases if isinstance(b, PortalMetaclass)]
         if not parents:
-            return super().__new__(mcls, name, bases, attrs)
+            return super().__new__(mcs, name, bases, attrs)
 
         attrs_meta = attrs.pop("Meta", None)
 
-        cls = super().__new__(mcls, name, bases, attrs)
+        cls = super().__new__(mcs, name, bases, attrs)
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
@@ -251,7 +248,7 @@ class PortalManager:
     def __getitem__(self, k):
         if isinstance(k, slice):
             if (k.start is not None and k.start < 0) or (k.stop is not None and k.stop < 0):
-                raise ValueError("Negative indexing is not supported.")
+                raise ValueError(ERROR_MESSAGE_NEGATIVE_INDEXING)
             if k.stop is not None and k.stop <= (k.start or 0):
                 raise ValueError("Stop index must be greater than start index.")
 
@@ -266,7 +263,7 @@ class PortalManager:
 
         elif isinstance(k, int):
             if k < 0:
-                raise ValueError("Negative indexing is not supported.")
+                raise ValueError(ERROR_MESSAGE_NEGATIVE_INDEXING)
 
             if self._result_cache is not None:
                 return self._result_cache[k]
@@ -469,9 +466,13 @@ class PortalModel(metaclass=PortalMetaclass):
         record_id_exists = self.record_id is not None
 
         if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
+            # Force insert in case record_id already exists
+            self.record_id = None
+            self.mod_id = None
+
             self.model.save(force_update=True, update_fields=[], portals=[self])
         elif not record_id_exists and force_update:
-            raise ValueError("Cannot update a record without record_id.")
+            raise ValueError(ERROR_MESSAGE_RECORD_ID_REQUIRED)
         elif record_id_exists and not force_insert:
             self.model.save(force_update=True, update_fields=[], portals=[self])
         else:
@@ -492,7 +493,7 @@ class PortalModel(metaclass=PortalMetaclass):
 
     def as_layout_model(self, model_class: Type[AMODEL]) -> AMODEL:
         if self.record_id is None:
-            raise ValueError("Cannot update a record without record_id.")
+            raise ValueError(ERROR_MESSAGE_RECORD_ID_REQUIRED)
 
         model_field_data = {}
         portal_model_updated_fields_fm_name = []
@@ -570,15 +571,26 @@ class Criteria:
         def convert(self, field_meta: ModelMetaField, model_class: Type[Model]) -> Union[str, int]:
             return self.value
 
-    Empty = Raw("==")
-    Blank = Raw("=")
-    NotEmpty = Raw("*")
+    @dataclasses.dataclass
+    class Empty(FieldCriteria):
+        def convert(self, field_meta: ModelMetaField, model_class: Type[Model]) -> Union[str, int]:
+            return "=="
+
+    @dataclasses.dataclass
+    class Blank(FieldCriteria):
+        def convert(self, field_meta: ModelMetaField, model_class: Type[Model]) -> Union[str, int]:
+            return "="
+
+    @dataclasses.dataclass
+    class NotEmpty(FieldCriteria):
+        def convert(self, field_meta: ModelMetaField, model_class: Type[Model]) -> Union[str, int]:
+            return "*"
 
     @dataclasses.dataclass
     class SingleParameterCriteria(FieldCriteria):
         value: Any
 
-        def get_fm_value(self, field_meta: ModelMetaField, model_class: Type[Model]) -> Union[str, int]:
+        def get_fm_value(self, field_meta: ModelMetaField, **kwargs) -> Union[str, int]:
             return get_fm_value(field_meta=field_meta, value=self.value)
 
     @dataclasses.dataclass
@@ -868,7 +880,7 @@ class ModelManager:
     def __getitem__(self, k):
         if isinstance(k, slice):
             if (k.start is not None and k.start < 0) or (k.stop is not None and k.stop < 0):
-                raise ValueError("Negative indexing is not supported.")
+                raise ValueError(ERROR_MESSAGE_NEGATIVE_INDEXING)
             if k.stop is not None and k.stop <= (k.start or 0):
                 raise ValueError("Stop index must be greater than start index.")
 
@@ -883,7 +895,7 @@ class ModelManager:
 
         elif isinstance(k, int):
             if k < 0:
-                raise ValueError("Negative indexing is not supported.")
+                raise ValueError(ERROR_MESSAGE_NEGATIVE_INDEXING)
 
             if self._result_cache is not None:
                 return self._result_cache[k]
@@ -1204,16 +1216,16 @@ class PortalPrefetchData:
 
 
 class ModelMetaclass(type):
-    def __new__(mcls, name, bases, attrs):
+    def __new__(mcs, name, bases, attrs):
         # Also ensure initialization is only performed for subclasses of Model
         # (excluding Model class itself).
         parents = [b for b in bases if isinstance(b, ModelMetaclass)]
         if not parents:
-            return super().__new__(mcls, name, bases, attrs)
+            return super().__new__(mcs, name, bases, attrs)
 
         attrs_meta = attrs.pop("Meta", None)
 
-        cls = super().__new__(mcls, name, bases, attrs)
+        cls = super().__new__(mcs, name, bases, attrs)
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
@@ -1503,7 +1515,7 @@ class Model(metaclass=ModelMetaclass):
 
     def update_container(self, field_name: str, file: IO):
         if self.record_id is None:
-            raise ValueError("Cannot update a record without record_id.")
+            raise ValueError(ERROR_MESSAGE_RECORD_ID_REQUIRED)
 
         field_meta = self._meta.fields.get(field_name, None)
 
