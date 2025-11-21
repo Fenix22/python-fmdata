@@ -723,6 +723,12 @@ class ModelManager:
     def all(self):
         return self._clone()
 
+    def get(self, record_id: str) -> Model:
+        record = self._model_class(record_id=record_id)
+        record.refresh_from_db()
+
+        return record
+
     def create(self, **kwargs):
         new_model = self._model_class(**kwargs)
         new_model.save()
@@ -1457,7 +1463,14 @@ class Model(metaclass=ModelMetaclass):
             used_mod_id = self.mod_id if check_mod_id else None
 
             # Portal delete
-            portals_to_delete_record_ids = [(portal._portal_name, portal.record_id) for portal in portals_to_delete]
+            portals_to_delete_record_ids = []
+            for portal in portals_to_delete:
+                portal_record_id = portal.record_id
+                if portal_record_id is None:
+                    raise ValueError("Cannot delete a portal without record_id. portal.save() it first.")
+
+                portals_to_delete_record_ids.append((portal._portal_name, portal.record_id))
+
 
             result = self.objects._execute_edit_record(record_id=self.record_id,
                                                        mod_id=used_mod_id,

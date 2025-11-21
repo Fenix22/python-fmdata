@@ -401,7 +401,6 @@ class IntegrationTests(unittest.TestCase):
                 self.assertEqual(".", address.street[-1:])
                 self.assertEqual(".", address.zip[-1:])
                 self.assertTrue(address.code > 100000)
-                self.assertTrue(address.code > 100000)
 
             # Refresh model and assert again
             person.refresh_from_db()
@@ -994,6 +993,42 @@ class IntegrationTests(unittest.TestCase):
 
         persons = Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000]
         self.assertEqual(len(persons), 0)
+
+    #TODO test with read_only fields
+    def test_model_get_by_record_id(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
+
+        # Create a new person record
+        person = Person.objects.create(
+            full_name=f"Test get by record id Person {cohort_tag}",
+            birth_date=date(1990, 1, 1),
+            wakes_at=time(6, 0, 0),
+            Score=3.14,
+            avg_time=PythonDecimal("12.34"),
+            is_active=True,
+        )
+
+        # Now we try to read it back with get_by_record_id
+        person_got: Person = Person.objects.get(record_id=person.record_id)
+
+        self.assertEqual(person.record_id, person_got.record_id)
+        self.assertEqual(person.full_name, person_got.full_name)
+        self.assertEqual(person.birth_date, person_got.birth_date)
+        self.assertEqual(person.wakes_at, person_got.wakes_at)
+        self.assertEqual(person.Score, person_got.Score)
+        self.assertEqual(person.avg_time, person_got.avg_time)
+        self.assertEqual(person.is_active, person_got.is_active)
+
+        # Test exception if not found
+        with self.assertRaises(Exception):
+            Person.objects.get(record_id="999999999")
+
+        # Cleanup
+        logger.info("Deleting all person test data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
 
     def test_get_records(self):
         cohort_tag = self.get_cohort_tag()
