@@ -12,6 +12,69 @@ FileMaker** data.
 It streamlines integration with the **FileMaker Data API** by replacing low-level HTTP requests with a familiar ORM
 layer.
 
+## Table of Contents
+
+- [Why this library exists](#why-this-library-exists)
+- [Installation](#installation)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Connection and authentication](#connection-and-authentication)
+  - [Username / password](#username--password)
+  - [Username / password with data sources](#username--password-with-data-sources)
+  - [Claris Cloud](#claris-cloud)
+  - [Configuration Options](#configuration-options)
+- [Defining models and portals](#defining-models-and-portals)
+  - [Field types: Python vs FileMaker](#field-types-python-vs-filemaker)
+  - [Field type limitations and gotchas](#field-type-limitations-and-gotchas)
+- [Working with records](#working-with-records)
+  - [Model records](#model-records)
+    - [Find all records](#find-all-records)
+    - [Find with conditions](#find-with-conditions)
+    - [Iterate over the result set](#iterate-over-the-result-set)
+    - [Result set as a list](#result-set-as-a-list)
+    - [Count the number of results](#count-the-number-of-results)
+    - [Create a new record (and save it to the database)](#create-a-new-record-and-save-it-to-the-database)
+    - [Update an existing record](#update-an-existing-record)
+    - [Delete a record](#delete-a-record)
+    - [Refresh a record from the database](#refresh-a-record-from-the-database)
+    - [Read a record given a record_id](#read-a-record-given-a-record_id)
+  - [Portal records](#portal-records)
+    - [Read portal records of a model record](#read-portal-records-of-a-model-record)
+    - [Iterate over the result set](#iterate-over-the-result-set-1)
+    - [Result set as a list](#result-set-as-a-list-1)
+    - [Count the number of results](#count-the-number-of-results-1)
+    - [Create a portal record (and save it to the database)](#create-a-portal-record-and-save-it-to-the-database)
+    - [Update a portal record](#update-a-portal-record)
+    - [Delete a portal record](#delete-a-portal-record)
+    - [Create a portal record (without saving it to the database)](#create-a-portal-record-without-saving-it-to-the-database)
+  - [Saving records: full semantics of `record.save()`](#saving-records-full-semantics-of-recordsave)
+    - [`check_mod_id` (safe concurrent update)](#check_mod_id-safe-concurrent-update)
+    - [`force_insert` (soft cloning)](#force_insert-soft-cloning)
+    - [`force_update` (require an existing record)](#force_update-require-an-existing-record)
+    - [`only_updated_fields` (send only changed fields)](#only_updated_fields-send-only-changed-fields)
+    - [`update_fields` (restrict the fields being saved)](#update_fields-restrict-the-fields-being-saved)
+- [Bulk operations](#bulk-operations)
+  - [Bulk operations on portal records](#bulk-operations-on-portal-records)
+  - [Transactions and mixed operations](#transactions-and-mixed-operations)
+  - [Full semantics of `model.save(portals=..., portals_to_delete=...)`](#full-semantics-of-modelsaveportals-portals_to_delete)
+  - [Example: Use `SavePortalsConfig` to control per‑row options](#example-use-saveportalsconfig-to-control-perrow-options)
+  - [Bulk operations on model records](#bulk-operations-on-model-records)
+- [Advanced querying](#advanced-querying)
+  - [Criteria](#criteria)
+  - [Sorting](#sorting)
+  - [Prefetching](#prefetching)
+  - [Offset / Limit (slicing)](#offset--limit-slicing)
+  - [Chunking](#chunking)
+- [Model utilities](#model-utilities)
+  - [Converting a portal row to a layout model (`as_layout_model`)](#converting-a-portal-row-to-a-layout-model-as_layout_model)
+  - [Updating a portal container field](#updating-a-portal-container-field)
+- [Low-Level API Access](#low-level-api-access)
+- [Contributing](#contributing)
+- [License](#license)
+- [Author](#author)
+- [Acknowledgements](#acknowledgements)
+- [Links](#links)
+
 ## Why this library exists
 
 At first glance, FileMaker seems simple — and it is, until you start using it in a real project. Once you’re building a
@@ -446,7 +509,7 @@ internally. Only the following combinations are allowed:
 
 ### Model records
 
-##### Find all records
+#### Find all records
 
 ```python
 people = Person.objects.all()
@@ -614,7 +677,7 @@ arguments to control **what** is written and **how** the Data API call behaves:
 > changes.
 
 
-> ##### `force_insert` (soft cloning)
+> #### `force_insert` (soft cloning)
 >
 >```python
 ># Assume `person` is already persisted and has a record_id
@@ -627,7 +690,7 @@ arguments to control **what** is written and **how** the Data API call behaves:
 >- If there is **no** `record_id` yet, `force_insert=True` behaves like a normal create.
 
 
-> ##### `force_update` (require an existing record)
+> #### `force_update` (require an existing record)
 >
 >```python
 >person = Person(name="Transient")
@@ -640,7 +703,7 @@ arguments to control **what** is written and **how** the Data API call behaves:
 >- This is useful when you want to be absolutely sure you are **not accidentally creating** new records.
 
 
-> ##### `only_updated_fields` (send only changed fields)
+> #### `only_updated_fields` (send only changed fields)
 >
 >```python
 >person.name = "Minimal Patch"
@@ -655,7 +718,7 @@ arguments to control **what** is written and **how** the Data API call behaves:
 >- For cloning (`force_insert=True` on an existing record), the default becomes `False`, because you usually want to
    > copy everything into the new record.
 
-> ##### `update_fields` (restrict the fields being saved)
+> #### `update_fields` (restrict the fields being saved)
 >
 >```python
 >person.name = "John Only-Name"
