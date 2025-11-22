@@ -8,7 +8,7 @@ from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Uni
 from marshmallow import Schema, fields
 
 import fmdata
-from fmdata import Client, FMVersion
+from fmdata import Client, FMVersion, clean_none
 from fmdata.cache_iterator import CacheIterator
 from fmdata.client import portal_page_generator, fm_version_gte
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
@@ -39,6 +39,7 @@ def get_meta_attribute(cls, attrs_meta, attribute_name: str, default=None) -> An
 
 class FileMakerSchema(Schema):
     pass
+
 
 @dataclasses.dataclass(frozen=True)
 class ScriptsResponse:
@@ -149,7 +150,7 @@ class PortalMetaclass(type):
 
         portal_name = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="portal_name")
         table_occurrence = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
-                                                   attribute_name="table_occurrence")
+                                              attribute_name="table_occurrence")
 
         cls._meta = PortalModelMeta(
             base_schema=base_schema_cls,
@@ -457,27 +458,51 @@ class PortalModel(metaclass=PortalMetaclass):
             super().__setattr__(attr_name, value)
 
     def save(self,
-             force_insert=False,
-             force_update=False,
-             update_fields=None,
-             only_updated_fields=True,
-             check_mod_id=False):
+             force_insert: bool = False,
+             force_update: bool = False,
+             update_fields: Iterable[str] = None,
+             only_updated_fields: Optional[bool] = None,
+             check_mod_id: bool = False):
 
         if force_insert and (force_update or update_fields):
             raise ValueError("Cannot force both insert and updating in model saving.")
 
         record_id_exists = self.record_id is not None
 
-        if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
-            # Force insert in case record_id already exists
-            self.record_id = None
-            self.mod_id = None
+        # Exectue
+        is_force_update_a_non_existing_record = not record_id_exists and force_update
 
-            self.model.save(force_update=True, update_fields=[], portals=[self])
-        elif not record_id_exists and force_update:
+        if is_force_update_a_non_existing_record:
             raise ValueError(ERROR_MESSAGE_RECORD_ID_REQUIRED)
-        elif record_id_exists and not force_insert:
-            self.model.save(force_update=True, update_fields=[], portals=[self])
+
+        is_create_new = not record_id_exists and not force_update
+        is_clone_existing = record_id_exists and force_insert
+        is_update_existing = record_id_exists and not force_insert
+
+        if only_updated_fields is None:
+            # For new records and updates, by default we only send updated fields
+            only_updated_fields = True
+
+            if is_clone_existing:
+                # For clones, by default, we also send all fields
+                only_updated_fields = False
+
+        save_portal_config = SavePortalsConfig(
+            portal=self,
+            check_mod_id=check_mod_id,
+            update_fields=update_fields,
+            only_updated_fields=only_updated_fields
+        )
+
+        if is_create_new or is_clone_existing:
+            if is_clone_existing:
+                # Force insert in case record_id already exists
+                self.record_id = None
+                self.mod_id = None
+
+            self.model.save(force_update=True, update_fields=[], portals=[save_portal_config])
+        elif is_update_existing:
+            self.model.save(force_update=True, update_fields=[], portals=[save_portal_config])
         else:
             raise ValueError("Impossible case")
 
@@ -835,7 +860,7 @@ class ModelManager:
         new_qs._chunk_size = size
         return new_qs
 
-    def prefetch_portal(self, portal: str, limit: int = None, offset: int = 1):
+    def prefetch_portal(self, portal: str, limit: int = None, offset: int = 0):
         self._assert_not_sliced()
 
         if limit is None:
@@ -843,8 +868,8 @@ class ModelManager:
         elif limit < 0:
             raise ValueError("Limit must be None or a number > 0.")
 
-        if offset is None or offset < 1:
-            raise ValueError("Offset must a number >= 1.")
+        if offset is None or offset < 0:
+            raise ValueError("Offset must a number >= 0.")
 
         new_qs = self._clone()
 
@@ -855,7 +880,7 @@ class ModelManager:
 
         portal_fm_name = portal_field.filemaker_name
 
-        new_qs._portals[portal_fm_name] = SinglePortalInput(offset=offset, limit=limit)
+        new_qs._portals[portal_fm_name] = SinglePortalInput(offset=offset + 1, limit=limit)
         return new_qs
 
     def response_layout(self, response_layout):
@@ -1129,14 +1154,6 @@ class ModelManager:
 
     def _execute_edit_record(self, record_id, mod_id, field_data, portals_data, portals_to_delete):
 
-        len_delete_related = len(portals_to_delete)
-        len_portal_data = len(portals_data)
-        len_field_data = len(field_data)
-
-        # If no change are required on model, and no change are required on portals
-        if len_field_data + len_portal_data + len_delete_related == 0:
-            return None
-
         result = None
         # In FM 18 and later, we can delete multiple portal records in a single request
         if fm_version_gte(self._client, FMVersion.V18):
@@ -1151,8 +1168,12 @@ class ModelManager:
                 mod_id=mod_id,
                 field_data=field_data,
                 portal_data=portals_data)
+
+            result.raise_exception_if_has_error()
         else:
             # We first do the save of the changes on the model + new portals
+            len_portal_data = len(portals_data)
+            len_field_data = len(field_data)
 
             if len_field_data + len_portal_data != 0:
                 result = self._client.edit_record(
@@ -1327,6 +1348,7 @@ class Model(metaclass=ModelMetaclass):
         self.mod_id: Optional[str] = kwargs.pop("mod_id", None)
         self._portals_prefetch: dict[str, PortalPrefetchData] = kwargs.pop("_portals_prefetch", {})
         _from_db: Optional[dict] = kwargs.pop("_from_db", None)
+        _consider_fields_as_updated: Optional[bool] = kwargs.pop("_consider_fields_as_updated", True)
 
         self._updated_fields = set()
 
@@ -1353,7 +1375,9 @@ class Model(metaclass=ModelMetaclass):
             for key, value in kwargs.items():
                 if key in self._meta.fields:
                     super().__setattr__(key, value)
-                    self._updated_fields.add(key)
+
+                    if _consider_fields_as_updated:
+                        self._updated_fields.add(key)
                 else:
                     raise AttributeError(f"Field '{key}' does not exist")
 
@@ -1398,11 +1422,11 @@ class Model(metaclass=ModelMetaclass):
         return self
 
     def save(self,
-             force_insert=False,
-             force_update=False,
-             update_fields=None,
-             only_updated_fields=True,
-             check_mod_id=False,
+             force_insert: bool = False,
+             force_update: bool = False,
+             update_fields: Iterable[str] = None,
+             only_updated_fields: Optional[bool] = None,
+             check_mod_id: bool = False,
              portals: Iterable[Union[PortalModel, SavePortalsConfig]] = (),
              portals_to_delete: Iterable[PortalModel] = ()):
 
@@ -1428,12 +1452,20 @@ class Model(metaclass=ModelMetaclass):
                 raise ValueError("Portal model must be related to this record.")
 
             used_mod_id = portal.mod_id if config.check_mod_id else None
+            is_new_portal = portal.record_id is None
 
             patch = patch_from_model_or_portal(model_or_portal=portal,
                                                only_updated_fields=config.only_updated_fields,
                                                update_fields=config.update_fields)
 
-            if portal.record_id is None:
+            if len(patch) == 0:
+                if is_new_portal:
+                    raise ValueError("Cannot create a new portal record without any field data.")
+                else:
+                    # Optimization: skip this portal because we have nothing to update
+                    continue
+
+            if is_new_portal:
                 new_portals.append((portal, patch))
                 total_expected_new_portals_entries += len(patch)
 
@@ -1444,7 +1476,24 @@ class Model(metaclass=ModelMetaclass):
                                              portal_field_data=patch)
 
         # Execute
-        if (not record_id_exists and not force_update) or (record_id_exists and force_insert):
+        is_force_update_a_non_existing_record = not record_id_exists and force_update
+
+        if is_force_update_a_non_existing_record:
+            raise ValueError("Cannot update a record without record_id. model.save() it first.")
+
+        is_create_new = not record_id_exists and not force_insert
+        is_clone_existing = record_id_exists and force_insert
+        is_update_existing = record_id_exists and not force_insert
+
+        if only_updated_fields is None:
+            # For new records and updates, by default we only send updated fields
+            only_updated_fields = True
+
+            if is_clone_existing:
+                # For clones, by default, we also send all fields
+                only_updated_fields = False
+
+        if is_create_new or is_clone_existing:
             patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
                                                update_fields=None)
@@ -1453,9 +1502,7 @@ class Model(metaclass=ModelMetaclass):
 
             self.record_id = result.response.record_id
             self.mod_id = result.response.mod_id
-        elif not record_id_exists and force_update:
-            raise ValueError("Cannot update a record without record_id. model.save() it first.")
-        elif record_id_exists and not force_insert:
+        elif is_update_existing:
             patch = patch_from_model_or_portal(model_or_portal=self,
                                                only_updated_fields=only_updated_fields,
                                                update_fields=update_fields, )
@@ -1471,6 +1518,14 @@ class Model(metaclass=ModelMetaclass):
 
                 portals_to_delete_record_ids.append((portal._portal_name, portal.record_id))
 
+            # Check if any change is required
+            len_delete_related = len(portals_to_delete_record_ids)
+            len_portal_data = len(portals_input)
+            len_field_data = len(patch)
+
+            # If no change are required on model, and no change are required on portals => return
+            if len_field_data + len_portal_data + len_delete_related == 0:
+                return self
 
             result = self.objects._execute_edit_record(record_id=self.record_id,
                                                        mod_id=used_mod_id,
@@ -1520,7 +1575,8 @@ class Model(metaclass=ModelMetaclass):
         new_record_id = result.response.record_id
         new_mod_id = result.response.mod_id
 
-        return self.__class__(record_id=new_record_id, mod_id=new_mod_id, **self.to_dict())
+        return self.__class__(record_id=new_record_id, mod_id=new_mod_id, _consider_fields_as_updated=False,
+                              **self.to_dict())
 
     def delete(self):
         if self.record_id is None:
@@ -1559,19 +1615,20 @@ def patch_from_model_or_portal(model_or_portal: Union[PortalModel, Model], only_
     patch = model_or_portal._dump_fields()
     if update_fields is not None:
         patch = {key: value for key, value in patch.items()
-                 if key in update_fields}
+                 if model_or_portal._meta.fm_fields[key].name in update_fields}
     if only_updated_fields:
         patch = {key: value for key, value in patch.items()
                  if model_or_portal._meta.fm_fields[key].name in model_or_portal._updated_fields}
-    return patch
+
+    return clean_none(patch)
 
 
 @dataclasses.dataclass
 class SavePortalsConfig:
     portal: PortalModel
-    check_mod_id: bool
-    update_fields: Optional[Set[str]]
-    only_updated_fields: bool = True
+    check_mod_id: bool = False
+    update_fields: Optional[Iterable[str]] = None
+    only_updated_fields: Optional[bool] = None
 
 
 @dataclasses.dataclass

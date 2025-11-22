@@ -93,13 +93,19 @@ class FMFieldsSerializationTests(unittest.TestCase):
     def test_string_with_timestamp_fieldtype(self):
         fld = fmdata.String(field_type=FMFieldType.Timestamp)
 
-        dt_iso = "2024-05-18T06:30:05"  # Time zone info will be lost on serialize/deserialize
+        dt_iso = "2024-05-18T06:30:05"
         dt_iso_tz = "2024-05-18T06:30:05+03:00"  # Time zone info will be lost on serialize/deserialize
+        dt_ms = "2024-05-18T06:30:05.123000"  # Millisecond will be lost on serialize/deserialize
+        dt_us = "2024-05-18T06:30:05.123456"  # Microseconds will be lost on serialize/deserialize
+        dt_us_tz = "2024-05-18T06:30:05.123456+03:00"  # Microseconds will be lost on serialize/deserialize
 
         # Serialize to FM US format
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_iso, "x", {}))
         self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_iso_tz, "x", {}))
+        self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_ms, "x", {}))
+        self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_us, "x", {}))
+        self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_us_tz, "x", {}))
 
         # Invalid input raises
         with self.assertRaises(ValueError):
@@ -120,6 +126,10 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("2024-05-18T06:30:05", "x", {})
         with self.assertRaises(ValidationError):
             fld._deserialize("2024-05-18T06:30:05+03:00", "x", {})
+        with self.assertRaises(ValidationError):
+            fld._deserialize("2024-05-18T06:30:05.123456", "x", {})
+        with self.assertRaises(ValidationError):
+            fld._deserialize("2024-05-18T06:30:05.123456+03:00", "x", {})
 
     def test_string_with_time_fieldtype(self):
         fld = fmdata.String(field_type=FMFieldType.Time)
@@ -359,9 +369,15 @@ class FMFieldsSerializationTests(unittest.TestCase):
     def test_datetime_with_timestamp_fieldtype(self):
         fld = fmdata.DateTime(field_type=FMFieldType.Timestamp)
         dt = datetime(2024, 5, 18, 6, 30, 5)
+        dt_tz = datetime(2024, 5, 18, 6, 30, 5, tzinfo=ZoneInfo("Europe/Paris"))
+        dt_us = datetime(2024, 5, 18, 6, 30, 5, 123456)
+        dt_us_tz = datetime(2024, 5, 18, 6, 30, 5, 123456, tzinfo=ZoneInfo("Europe/Paris"))
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt, "x", {}))
+        self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_tz, "x", {}))
+        self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_us, "x", {}))
+        self.assertEqual("05/18/2024 06:30:05", fld._serialize(dt_us_tz, "x", {}))
 
         with self.assertRaises(ValueError):
             fld._serialize(0, "x", {})
@@ -397,10 +413,14 @@ class FMFieldsSerializationTests(unittest.TestCase):
         fld = fmdata.DateTime(field_type=FMFieldType.Text)
         dt = datetime(2024, 5, 18, 6, 30, 5)
         dt_tz = dt.replace(tzinfo=ZoneInfo("Europe/Paris"))
+        dt_us = datetime(2024, 5, 18, 6, 30, 5, 123456)
+        dt_us_tz = datetime(2024, 5, 18, 6, 30, 5, 123456, tzinfo=ZoneInfo("Europe/Paris"))
 
         self.assertEqual("", fld._serialize(None, "x", {}))
         self.assertEqual("2024-05-18T06:30:05", fld._serialize(dt, "x", {}))
         self.assertEqual("2024-05-18T06:30:05+02:00", fld._serialize(dt_tz, "x", {}))
+        self.assertEqual("2024-05-18T06:30:05.123456", fld._serialize(dt_us, "x", {}))
+        self.assertEqual("2024-05-18T06:30:05.123456+02:00", fld._serialize(dt_us_tz, "x", {}))
 
         with self.assertRaises(ValueError):
             fld._serialize(0, "x", {})
@@ -416,6 +436,8 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual(None, fld._deserialize("", "x", {}))
         self.assertEqual(dt, fld._deserialize("2024-05-18T06:30:05", "x", {}))
         self.assertEqual(dt_tz, fld._deserialize("2024-05-18T06:30:05+02:00", "x", {}))
+        self.assertEqual(dt_us, fld._deserialize("2024-05-18T06:30:05.123456", "x", {}))
+        self.assertEqual(dt_us_tz, fld._deserialize("2024-05-18T06:30:05.123456+02:00", "x", {}))
 
         with self.assertRaises(ValidationError):
             fld._deserialize(0, "x", {})

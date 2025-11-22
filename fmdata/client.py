@@ -25,6 +25,7 @@ from fmdata.utils import clean_none
 
 logger = logging.getLogger("fmdata")
 
+
 class FMVersion(IntEnum):
     V17 = 17_00_00_00
     V18 = 18_00_00_00
@@ -49,13 +50,15 @@ class LoginRetriedTooFastException(Exception):
         super().__init__(msg)
 
 
-class SessionProvider:
+class LoginProvider:
     def login(self, fm_client: Client, **kwargs) -> str:
+        # Implemented in subclasses
         raise NotImplementedError
 
 
 class DataSourceProvider:
     def provide(self, **kwargs) -> Dict:
+        # Implemented in subclasses
         pass
 
 
@@ -71,7 +74,7 @@ def _auto_manage_session(f):
     def wrapper(self: Client, *args, **kwargs):
         if not self.auto_manage_session:
             if self._session_invalid:
-                raise Exception("Session is invalid. Please call login first.")
+                raise ValueError("Session is invalid. Please call login first.")
             return f(self, *args, **kwargs)
 
         invalid_token_error: Optional[Message] = None
@@ -144,7 +147,7 @@ class Client:
     def __init__(self,
                  url: str,
                  database: str,
-                 login_provider: SessionProvider,
+                 login_provider: LoginProvider,
                  version: Union[str, int],
                  connection_timeout: float = 10,
                  read_timeout: float = 30,
@@ -155,7 +158,7 @@ class Client:
 
         self.url: str = url
         self.database: str = database
-        self.login_provider: SessionProvider = login_provider
+        self.login_provider: LoginProvider = login_provider
         self.version: FMVersion = map_version_or_raise(version)
         self.connection_timeout: float = connection_timeout
         self.read_timeout: float = read_timeout
@@ -177,6 +180,7 @@ class Client:
         self._session_lock = threading.RLock()
 
     def on_new_session(self, **kwargs):
+        # Can be overridden to perform actions on new session creation (for example, for initializing global variables)
         pass
 
     def login(self) -> None:
@@ -864,7 +868,7 @@ def portal_page_generator(
         result.raise_exception_if_has_error()
 
         response_record_count = len(result.response.data)
-        if not response_record_count == 1:
+        if response_record_count != 1:
             response_entries_count = 0
             is_final_page = True
         else:

@@ -4,11 +4,9 @@ from unittest.mock import Mock, patch
 from fmdata.results import LoginResult
 from fmdata.session_providers import (
     get_token_or_raise_exception,
-    UsernamePasswordDataSourceProvider,
-    OAuthDataSourceProvider,
-    UsernamePasswordSessionProvider,
-    OAuthSessionProvider,
-    ClarisCloudSessionProvider
+    UsernamePasswordDataSource,
+    UsernamePasswordLogin,
+    ClarisCloudLogin
 )
 
 
@@ -45,7 +43,7 @@ class TestUsernamePasswordDataSourceProvider(unittest.TestCase):
 
     def test_provide(self):
         """Test UsernamePasswordDataSourceProvider.provide method."""
-        provider = UsernamePasswordDataSourceProvider(
+        provider = UsernamePasswordDataSource(
             database="test_db",
             username="test_user",
             password="test_pass"
@@ -57,26 +55,6 @@ class TestUsernamePasswordDataSourceProvider(unittest.TestCase):
             "database": "test_db",
             "username": "test_user",
             "password": "test_pass"
-        }
-        self.assertEqual(result, expected)
-
-
-class TestOAuthDataSourceProvider(unittest.TestCase):
-
-    def test_provide(self):
-        """Test OAuthDataSourceProvider.provide method."""
-        provider = OAuthDataSourceProvider(
-            database="test_db",
-            oauth_request_id="request_123",
-            oauth_identifier="identifier_456"
-        )
-
-        result = provider.provide()
-
-        expected = {
-            "database": "test_db",
-            "oAuthRequestId": "request_123",
-            "oAuthIdentifier": "identifier_456"
         }
         self.assertEqual(result, expected)
 
@@ -94,7 +72,7 @@ class TestUsernamePasswordSessionProvider(unittest.TestCase):
         mock_result.raise_exception_if_has_error.return_value = None
         mock_client.raw_login_username_password.return_value = mock_result
 
-        provider = UsernamePasswordSessionProvider(
+        provider = UsernamePasswordLogin(
             username="test_user",
             password="test_pass"
         )
@@ -119,7 +97,7 @@ class TestUsernamePasswordSessionProvider(unittest.TestCase):
         mock_client.raw_login_username_password.return_value = mock_result
 
         mock_data_source = Mock()
-        provider = UsernamePasswordSessionProvider(
+        provider = UsernamePasswordLogin(
             username="test_user",
             password="test_pass",
             data_sources=[mock_data_source]
@@ -135,64 +113,12 @@ class TestUsernamePasswordSessionProvider(unittest.TestCase):
         )
 
 
-class TestOAuthSessionProvider(unittest.TestCase):
-
-    def test_login_success(self):
-        """Test OAuthSessionProvider.login method."""
-        mock_client = Mock()
-        mock_result = Mock(spec=LoginResult)
-        mock_response = Mock()
-        mock_response.token = "oauth_token_123"
-        mock_result.response = mock_response
-        mock_result.raise_exception_if_has_error.return_value = None
-        mock_client.raw_login_oauth.return_value = mock_result
-
-        provider = OAuthSessionProvider(
-            oauth_request_id="request_123",
-            oauth_identifier="identifier_456"
-        )
-
-        token = provider.login(mock_client)
-
-        self.assertEqual(token, "oauth_token_123")
-        mock_client.raw_login_oauth.assert_called_once_with(
-            oauth_request_id="request_123",
-            oauth_identifier="identifier_456",
-            data_sources=None
-        )
-
-    def test_login_with_data_sources(self):
-        """Test OAuthSessionProvider.login with data sources."""
-        mock_client = Mock()
-        mock_result = Mock(spec=LoginResult)
-        mock_response = Mock()
-        mock_response.token = "oauth_token_123"
-        mock_result.response = mock_response
-        mock_result.raise_exception_if_has_error.return_value = None
-        mock_client.raw_login_oauth.return_value = mock_result
-
-        mock_data_source = Mock()
-        provider = OAuthSessionProvider(
-            oauth_request_id="request_123",
-            oauth_identifier="identifier_456",
-            data_sources=[mock_data_source]
-        )
-
-        token = provider.login(mock_client)
-
-        self.assertEqual(token, "oauth_token_123")
-        mock_client.raw_login_oauth.assert_called_once_with(
-            oauth_request_id="request_123",
-            oauth_identifier="identifier_456",
-            data_sources=[mock_data_source]
-        )
-
 
 class TestClarisCloudSessionProvider(unittest.TestCase):
 
     def test_init_defaults(self):
         """Test ClarisCloudSessionProvider initialization with defaults."""
-        provider = ClarisCloudSessionProvider()
+        provider = ClarisCloudLogin()
 
         self.assertEqual(provider.cognito_userpool_id, 'us-west-2_NqkuZcXQY')
         self.assertEqual(provider.cognito_client_id, '4l9rvl4mv5es1eep1qe97cautn')
@@ -202,7 +128,7 @@ class TestClarisCloudSessionProvider(unittest.TestCase):
 
     def test_init_custom_values(self):
         """Test ClarisCloudSessionProvider initialization with custom values."""
-        provider = ClarisCloudSessionProvider(
+        provider = ClarisCloudLogin(
             cognito_userpool_id='custom_pool',
             cognito_client_id='custom_client',
             claris_id_name='test_user',
@@ -216,7 +142,7 @@ class TestClarisCloudSessionProvider(unittest.TestCase):
 
     def test_get_cognito_token_missing_pycognito(self):
         """Test _get_cognito_token when pycognito is not available."""
-        provider = ClarisCloudSessionProvider(
+        provider = ClarisCloudLogin(
             claris_id_name='test_user',
             claris_id_password='test_pass'
         )
@@ -239,7 +165,7 @@ class TestClarisCloudSessionProvider(unittest.TestCase):
         # Configure the import mock to return our mock pycognito
         mock_import.return_value = mock_pycognito
 
-        provider = ClarisCloudSessionProvider(
+        provider = ClarisCloudLogin(
             cognito_userpool_id='test_pool',
             cognito_client_id='test_client',
             claris_id_name='test_user',
@@ -277,7 +203,7 @@ class TestClarisCloudSessionProvider(unittest.TestCase):
         mock_result.raise_exception_if_has_error.return_value = None
         mock_client.raw_login_claris_cloud.return_value = mock_result
 
-        provider = ClarisCloudSessionProvider(
+        provider = ClarisCloudLogin(
             claris_id_name='test_user',
             claris_id_password='test_pass'
         )

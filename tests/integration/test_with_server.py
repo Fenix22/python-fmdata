@@ -14,7 +14,7 @@ import requests
 
 import fmdata
 from fmdata import fm_version_gte, FMVersion, Model, PortalField, PortalModel, FMFieldType, ScriptResult, \
-    UsernamePasswordSessionProvider
+    UsernamePasswordLogin
 from fmdata.results import FieldMetaData
 from tests import env
 
@@ -44,7 +44,7 @@ current_dir = Path(__file__).parent
 fm_client = fmdata.Client(
     url=env("FMS_ADDRESS"),
     database=env("FMS_DB_NAME"),
-    login_provider=UsernamePasswordSessionProvider(
+    login_provider=UsernamePasswordLogin(
         username=env("FMS_DB_USER"),
         password=env("FMS_DB_PASSWORD"),
     ),
@@ -80,9 +80,16 @@ class AddressPortal(Place):
     code = fmdata.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Code", field_type=FMFieldType.Number)
     zone = fmdata.Integer(field_name=f"{ADDRESS_PORTAL_NAME}::Zone", field_type=FMFieldType.Text)
     reviewed_at = fmdata.DateTime(field_name=f"{ADDRESS_PORTAL_NAME}::ReviewedAt", field_type=FMFieldType.Text)
+
+    address_line_1 = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::AddressLine(1)", field_type=FMFieldType.Text)
+    address_line_2 = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::AddressLine(2)", field_type=FMFieldType.Text)
+    address_line_3 = fmdata.String(field_name=f"{ADDRESS_PORTAL_NAME}::AddressLine(3)", field_type=FMFieldType.Text)
+
     picture = fmdata.Container(field_name=f"{ADDRESS_PORTAL_NAME}::Picture")
 
-    population = fmdata.Integer(field_name=f"{ADDRESS_CITY_INFO_TABLE_OCCURRANCE}::Population", field_type=FMFieldType.Number)
+    # From another related table
+    population = fmdata.Integer(field_name=f"{ADDRESS_CITY_INFO_TABLE_OCCURRANCE}::Population",
+                                field_type=FMFieldType.Number)
 
 
 # --------------------------------------------------------------------------------------
@@ -108,14 +115,20 @@ class LivingBeing(Model):
         layout = 'living_being'
 
     full_name = fmdata.String(field_name="FullName", field_type=FMFieldType.Text)
+    name = fmdata.String(field_name="Name", field_type=FMFieldType.Text)
+    last_name = fmdata.String(field_name="LastName", field_type=FMFieldType.Text)
+    phone_1 = fmdata.String(field_name="Phone(1)", field_type=FMFieldType.Text)
+    phone_2 = fmdata.String(field_name="Phone(2)", field_type=FMFieldType.Text)
+    phone_3 = fmdata.String(field_name="Phone(3)", field_type=FMFieldType.Text)
 
 
 class Person(LivingBeing):
     class Meta:
         layout = PERSON_LAYOUT
 
-    creation_timestamp = fmdata.DateTime(field_name="CreationTimestamp", field_type=FMFieldType.Timestamp)
-    pk = fmdata.String(field_name="PrimaryKey", field_type=FMFieldType.Text)
+    creation_timestamp = fmdata.DateTime(field_name="CreationTimestamp", read_only=True,
+                                         field_type=FMFieldType.Timestamp)
+    pk = fmdata.String(field_name="PrimaryKey", read_only=True, field_type=FMFieldType.Text)
     birth_date = fmdata.Date(field_name="BirthDate", field_type=FMFieldType.Date)
     join_time = fmdata.DateTime(field_name="JoinTime", field_type=FMFieldType.Timestamp)
     wakes_at = fmdata.Time(field_name="WakesUpAt", field_type=FMFieldType.Time)
@@ -284,6 +297,9 @@ class IntegrationTests(unittest.TestCase):
                 "Score": 3.14 + i,
                 "avg_time": PythonDecimal("12.34") + PythonDecimal(i),
                 "is_active": True,
+                "phone_1": f"+39-1234567890-{i:02d}",
+                "phone_2": f"+49-1234567890-{i:02d}",
+                "phone_3": f"+59-1234567890-{i:02d}",
             }
 
             # Create a new person record
@@ -300,6 +316,9 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(person.Score, person_data["Score"])
             self.assertEqual(person.avg_time, person_data["avg_time"])
             self.assertEqual(person.is_active, person_data["is_active"])
+            self.assertEqual(person.phone_1, person_data["phone_1"])
+            self.assertEqual(person.phone_2, person_data["phone_2"])
+            self.assertEqual(person.phone_3, person_data["phone_3"])
 
             # Then refresh db and recheck that what we read is the same
             person.refresh_from_db()
@@ -310,6 +329,9 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(person.Score, person_data["Score"])
             self.assertEqual(person.avg_time, person_data["avg_time"])
             self.assertEqual(person.is_active, person_data["is_active"])
+            self.assertEqual(person.phone_1, person_data["phone_1"])
+            self.assertEqual(person.phone_2, person_data["phone_2"])
+            self.assertEqual(person.phone_3, person_data["phone_3"])
 
             logger.info(f"Created person: {person.to_dict()}")
 
@@ -324,6 +346,9 @@ class IntegrationTests(unittest.TestCase):
                     "code": 20 + e,
                     "zone": random.randint(1000, 9999),
                     "reviewed_at": datetime(1 + 1 * 100 * i * e, (5 + e) % 12, 18, (6 + e) % 24, 30, 5),
+                    "address_line_1": f"Address line 1 - {i:03d}-{e:03d}",
+                    "address_line_2": f"Address line 2 - {i:03d}-{e:03d}",
+                    "address_line_3": f"Address line 3 - {i:03d}-{e:03d}",
                 }
 
                 person.addresses.create(
@@ -348,12 +373,18 @@ class IntegrationTests(unittest.TestCase):
                 self.assertEqual(address.code, data_written["code"])
                 self.assertEqual(address.zone, data_written["zone"])
                 self.assertEqual(address.reviewed_at, data_written["reviewed_at"])
+                self.assertEqual(address.address_line_1, data_written["address_line_1"])
+                self.assertEqual(address.address_line_2, data_written["address_line_2"])
+                self.assertEqual(address.address_line_3, data_written["address_line_3"])
 
                 # Make a bit of change to each portal before saving
                 patch_address_data = {
                     "city": address.city + "!",
                     "street": address.street + "r.",
                     "zip": address.zip + ".",
+                    "address_line_1": address.address_line_2 + "!",
+                    "address_line_2": address.address_line_2 + "?",
+                    "address_line_3": address.address_line_2 + "=",
                 }
 
                 address.update(**patch_address_data)
@@ -370,6 +401,9 @@ class IntegrationTests(unittest.TestCase):
                 "full_name": person.full_name + ".",
                 "birth_date": person.birth_date.replace(day=1),
                 "is_active": False,
+                "phone_1": person.phone_1 + "!",
+                "phone_2": person.phone_2 + "?",
+                "phone_3": person.phone_3 + "=",
             }
 
             person.update(**person_patch_data)
@@ -389,6 +423,9 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(person.is_active, False)
             self.assertEqual(person.avg_time, PythonDecimal(1))
             self.assertEqual(person.Score, 1.0)
+            self.assertEqual(person.phone_1, person_data["phone_1"] + "!")
+            self.assertEqual(person.phone_2, person_data["phone_2"] + "?")
+            self.assertEqual(person.phone_3, person_data["phone_3"] + "=")
 
             self.assertEqual(person.a_field_that_does_not_exist,
                              "This field does not exist in FM and should be ignored")
@@ -400,6 +437,9 @@ class IntegrationTests(unittest.TestCase):
                 self.assertEqual("!", address.city[-1:])
                 self.assertEqual(".", address.street[-1:])
                 self.assertEqual(".", address.zip[-1:])
+                self.assertEqual("!", address.address_line_1[-1:])
+                self.assertEqual("?", address.address_line_2[-1:])
+                self.assertEqual("=", address.address_line_3[-1:])
                 self.assertTrue(address.code > 100000)
 
             # Refresh model and assert again
@@ -437,7 +477,7 @@ class IntegrationTests(unittest.TestCase):
         result = (Person.objects
         .find(full_name__contains=f"Test Person {cohort_tag}")
         .order_by("-full_name")
-        .prefetch_portal("addresses", limit=5, offset=1)[:1000])
+        .prefetch_portal("addresses", limit=5, offset=0)[:1000])
 
         # Check size of result
         result_list = len(list(result))
@@ -524,12 +564,13 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(len(people), 1)
         self.assertEqual(len(people[0].addresses.all()), 2)
 
-        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", offset=4)
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", offset=3)
         self.assertEqual(len(people[0].addresses.all()), 2)
         self.assertEqual(people[0].addresses.all()[0].street, f"Test prefetch portal {cohort_tag}-003")
         self.assertEqual(people[0].addresses.all()[1].street, f"Test prefetch portal {cohort_tag}-004")
 
-        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", limit=1, offset=3)
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}").prefetch_portal("addresses", limit=1,
+                                                                                          offset=2)
         self.assertEqual(len(people[0].addresses.all()), 1)
         self.assertEqual(people[0].addresses.all()[0].street, f"Test prefetch portal {cohort_tag}-002")
 
@@ -603,8 +644,8 @@ class IntegrationTests(unittest.TestCase):
 
         person = Person.objects.create(**person_data)
 
-        #Create 5 with new()
-        created_addresses=[]
+        # Create 5 with new()
+        created_addresses = []
         for i in range(5):
             address_data = {
                 "street": f"Test bulk update portal records {cohort_tag}-{i:03d}",
@@ -624,9 +665,8 @@ class IntegrationTests(unittest.TestCase):
                 self.assertIsNotNone(address.record_id)
                 self.assertIsNotNone(address.mod_id)
 
-
-        #Create 5 with create()
-        for i in range(5,10):
+        # Create 5 with create()
+        for i in range(5, 10):
             address_data = {
                 "street": f"Test bulk update portal records {cohort_tag}-{i:03d}",
                 "city": f"Test bulk update portal records {cohort_tag}-{i:03d}",
@@ -659,7 +699,6 @@ class IntegrationTests(unittest.TestCase):
 
         logger.info("Clearing testing data...")
         Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
-
 
     def test_duplicate_records(self):
         cohort_tag = self.get_cohort_tag()
@@ -888,6 +927,269 @@ class IntegrationTests(unittest.TestCase):
         person.addresses[:1000].delete()
         person.delete()
 
+    # TODO as_layout_model with map of remapping
+
+    def test_find_omit(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}").delete()
+
+        # Create test data
+        for i in range(5):
+            person_data = {
+                "full_name": f"Test find omit Person {cohort_tag}-{i:03d}",
+            }
+
+            Person.objects.create(**person_data)
+
+        # Find with multiple find
+        people = (
+            Person.objects
+            .find(full_name__contains=f"{cohort_tag}-000")
+            .find(full_name__contains=f"{cohort_tag}-001")
+            .omit(full_name__contains=f"{cohort_tag}-001")
+        )
+
+        self.assertEqual(len(people), 1)
+        self.assertEqual(people[0].full_name, f"Test find omit Person {cohort_tag}-000")
+
+        people = (
+            Person.objects
+            .find(full_name__contains=f"{cohort_tag}-000")
+            .find(full_name__contains=f"{cohort_tag}-001")
+            .omit(full_name__contains=f"{cohort_tag}-001")
+            .find(full_name__contains=f"{cohort_tag}-001") # Find that omit it than find it again, so we expect that is included
+        )
+
+        self.assertEqual(len(people), 2)
+        self.assertEqual(people[0].full_name, f"Test find omit Person {cohort_tag}-000")
+        self.assertEqual(people[1].full_name, f"Test find omit Person {cohort_tag}-001")
+
+        people = (
+            Person.objects
+            .find(full_name__contains=f"{cohort_tag}")
+            .omit(full_name__contains=f"{cohort_tag}-000")
+            .omit(full_name__contains=f"{cohort_tag}-001")
+            .omit(full_name__contains=f"{cohort_tag}-002")
+        )
+
+        self.assertEqual(len(people), 2)
+        self.assertEqual(people[0].full_name, f"Test find omit Person {cohort_tag}-003")
+        self.assertEqual(people[1].full_name, f"Test find omit Person {cohort_tag}-004")
+
+        logger.info("Clearing testing data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}").delete()
+
+    def test_save_model(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}").delete()
+
+        person_data = {
+            "full_name": f"Test save model Person {cohort_tag}-000",
+        }
+
+        person = Person.objects.create(**person_data)
+
+        # force_insert=True, to duplicate it
+        logger.info("Testing save force_insert (manual duplicate)")
+        # expect that only_updated_fields=False is the used default behavior.
+        # So all the fields are considered updated and copied in the new record
+        person.save(force_insert=True)
+
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}-000")
+        self.assertEqual(len(people), 2)
+        self.assertEqual(people[0].full_name, people[1].full_name)
+
+        people[1].delete()
+
+        logger.info("Testing save force_update")
+        people = Person.objects.find(full_name__contains=f"{cohort_tag}-000")
+        person = people[0]
+        person.save(force_update=True)  # Just to test that no error is raised
+
+        date_now = datetime.now().replace(microsecond=0)
+        person.join_time = date_now
+        person.save(force_update=True)
+
+        person.refresh_from_db()
+        self.assertEqual(person.join_time, date_now)
+
+        logger.info("Testing save force_update without record_id")
+
+        person_no_record_id = Person(
+            full_name=f"Test save model Person no record id {cohort_tag}-000",
+        )
+
+        # Assert exception is raised
+        with self.assertRaises(Exception):
+            person_no_record_id.save(force_update=True)
+
+        # Test update_fields
+        logger.info("Testing update_fields")
+
+        person.Score = 3.14
+        person.avg_time = PythonDecimal("12.34")
+        person.is_active = True
+        person.save(update_fields=["Score", "avg_time"])
+
+        self.assertEqual(person.full_name, f"Test save model Person {cohort_tag}-000")
+        self.assertEqual(person.Score, 3.14)
+        self.assertEqual(person.avg_time, PythonDecimal("12.34"))
+        self.assertEqual(person.is_active, True)
+
+        person.refresh_from_db()
+
+        self.assertEqual(person.full_name, f"Test save model Person {cohort_tag}-000")
+        self.assertEqual(person.Score, 3.14)
+        self.assertEqual(person.avg_time, PythonDecimal("12.34"))
+        self.assertEqual(person.is_active, None)
+
+        # Test only_updated_fields
+        logger.info("Testing only_updated_fields/check_mod_id")
+
+        person_clone = Person.objects.find(full_name__contains=f"{cohort_tag}").first()
+
+        person.is_active = False
+        person.avg_time = PythonDecimal("12.35")
+        person.save()
+
+        # person_clone will have the old data inside, so is_active=None and avg_time=12.34
+        person_clone.is_active = True
+
+        # we try to save it with check_mod_id=True, so it will raise an exception because the mod_id is different
+        with self.assertRaises(Exception):
+            person_clone.save(check_mod_id=True)
+
+        person_clone.save(only_updated_fields=True)
+
+        # When person refresh we expect that only is_active is updated
+        person.refresh_from_db()
+
+        self.assertEqual(person.is_active, True)
+        self.assertEqual(person.avg_time, PythonDecimal("12.35"))
+
+        person_clone.save(only_updated_fields=False)
+
+        person.refresh_from_db()
+
+        self.assertEqual(person.is_active, True)
+        self.assertEqual(person.avg_time, PythonDecimal("12.34"))
+
+        logger.info("Clearing testing data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}").delete()
+
+    def test_portal_save(self):
+        cohort_tag = self.get_cohort_tag()
+
+        logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}").delete()
+
+        person_data = {
+            "full_name": f"Test save model Person {cohort_tag}-000",
+        }
+
+        person = Person.objects.create(**person_data)
+        logger.info("Testing portal update_fields")
+
+        portal_data = {
+            "street": f"Test save portal Person {cohort_tag}-000",
+            "city": "City",
+            "zip": "Zip",
+        }
+        person.addresses.create(**portal_data)
+
+        address = person.addresses.all()[0]
+
+        # force_insert=True, to duplicate it
+        logger.info("Testing portal save force_insert")
+        # expect that only_updated_fields=False is the used default behavior.
+        # So all the fields are considered updated and copied in the new record
+        address.save(force_insert=True)
+
+        addresses = person.addresses.all()
+        self.assertEqual(len(addresses), 2)
+        self.assertEqual(addresses[0].street, addresses[1].street)
+        self.assertEqual(addresses[0].city, addresses[1].city)
+        self.assertEqual(addresses[0].zip, addresses[1].zip)
+        addresses[1].delete()
+
+        logger.info("Testing portal save force_update")
+        address = person.addresses.all()[0]
+        address.save(force_update=True)  # Just to test that no error is raised
+
+        date_now = datetime.now()
+        address.reviewed_at = date_now
+        address.save(force_update=True)
+
+        address = person.addresses.all()[0]
+        self.assertEqual(address.reviewed_at, date_now)
+
+        logger.info("Testing portal save force_update without record_id")
+
+        address_no_record_id = person.addresses.new(
+            street="No Record ID Street",
+            city="No Record ID City",
+            zip="No Record ID Zip",
+        )
+
+        # Assert exception is raised
+        with self.assertRaises(Exception):
+            address_no_record_id.save(force_update=True)
+
+        logger.info("Testing portal save update_fields")
+        address = person.addresses.all()[0]
+        address.city = "New City"
+        address.zip = "New Zip"
+        address.zone = 99
+
+        address.save(update_fields=["city"])
+        address_refreshed = person.addresses.all()[0]
+
+        self.assertEqual(address_refreshed.street, portal_data["street"])  # The old value
+        self.assertEqual(address_refreshed.zip, portal_data["zip"])  # The old value
+        self.assertEqual(address_refreshed.zone, None)  # The old value
+        self.assertEqual(address_refreshed.city, "New City")  # The new value
+
+        logger.info("Testing portal save only_updated_fields/check_mod_id")
+
+        address_refreshed = person.addresses.all()[0]
+        address_clone = person.addresses.all()[0]
+
+        address_refreshed.street = "New Street A"
+        address_refreshed.city = "New City A"
+        address_refreshed.zip = "New Zip A"
+        address_refreshed.save(only_updated_fields=True)  # It will save both city and zip
+
+        address_clone.city = "New City B"
+        # First we try to save it with check_mod_id=True, so it will raise an exception because the mod_id is different
+        with self.assertRaises(Exception):
+            address_clone.save(check_mod_id=True)
+
+        address_clone.save(only_updated_fields=True)
+
+        # We expect that only city was updated
+        address_refreshed = person.addresses.all()[0]
+        self.assertEqual(address_refreshed.street, "New Street A")
+        self.assertEqual(address_refreshed.zip, "New Zip A")
+        self.assertEqual(address_refreshed.zone, None)
+        self.assertEqual(address_refreshed.city,"New City B")
+
+        # Then we save all the fields of the clone
+        address_clone.save(only_updated_fields=False)  # It will save also zip to the old value
+
+        # And we expect the values are the old ones
+        address_refreshed = person.addresses.all()[0]
+        self.assertEqual(address_refreshed.street, portal_data["street"])
+        self.assertEqual(address_refreshed.zip, portal_data["zip"])
+        self.assertEqual(address_refreshed.zone, None)
+        self.assertEqual(address_refreshed.city,"New City B")
+
+        logger.info("Clearing testing data...")
+        Person.objects.find(full_name__contains=f"{cohort_tag}").delete()
+
     def test_container_upload_download_and_as_layout_model(self):
         cohort_tag = self.get_cohort_tag()
 
@@ -994,7 +1296,6 @@ class IntegrationTests(unittest.TestCase):
         persons = Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000]
         self.assertEqual(len(persons), 0)
 
-    #TODO test with read_only fields
     def test_model_get_by_record_id(self):
         cohort_tag = self.get_cohort_tag()
 
