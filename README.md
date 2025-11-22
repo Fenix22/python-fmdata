@@ -442,56 +442,6 @@ internally. Only the following combinations are allowed:
     - Any value not contained in `truthy`/`falsy` will raise a `ValidationError`
       when deserializing from FileMaker.
 
-### Converting a portal row to a layout model (`as_layout_model`)
-
-Sometimes you have a portal record and you want to work with it as if it were
-coming from a dedicated layout (for example to reuse an existing model class,
-map fields with different Python names, or upload a container field that
-belongs to that layout). `portal_record.as_layout_model(model_class)` lets you do exactly
-this.
-
-Consider this portal model and a corresponding layout model:
-
-```python
-class AddressPortal(PortalModel):
-    class Meta:
-        table_occurrence = ADDRESS_PORTAL_TABLE_OCCURRENCE
-
-    city = fmdata.String(field_name=f"{ADDRESS_PORTAL_TABLE_OCCURRENCE}::City", field_type=FMFieldType.Text, )
-    picture = fmdata.Container(field_name=f"{ADDRESS_PORTAL_TABLE_OCCURRENCE}::Picture", )
-
-
-class AddressLayoutModel(Model):
-    class Meta:
-        layout = "address_layout"  # a layout based on the same table
-
-    # Note how the Python name can differ from the portal field name
-    the_city = fmdata.String(field_name="City", field_type=FMFieldType.Text)
-    picture = fmdata.Container(field_name="Picture", field_type=FMFieldType.Container)
-
-
-# Given a portal record
-address_portal_record = person.addresses.all()[0]
-# Convert the portal row to the layout model
-address_as_layout_record = address_portal_record.as_layout_model(model_class=AddressLayoutModel)
-```
-
-#### Updating a portal container field
-
-The Data API does not support updating a portal container field directly. So we use `as_layout_model` to convert the
-given portal record to a layout model record and then use `update_container()` on that:
-
-```python
-# Given a portal record
-address_portal_record = person.addresses.all()[0]
-# Convert the portal row to the layout model
-address_as_layout_record = address_portal_record.as_layout_model(model_class=AddressLayoutModel)
-
-# Upload a file to the portal container field via the layout model
-with open("/path/to/file.pdf", "rb") as file:
-    address_as_layout_record.update_container("picture", file)
-```
-
 ## Working with records
 
 ### Model records
@@ -631,7 +581,7 @@ address.delete()
 
 #### Create a portal record (without saving it to the database)
 
-Avoid it in FMS17! The `.save()` will not update the record_id of the record, so the next `.save() will create another
+Avoid it in FMS17! The `.save()` will not update the record_id of the record, so the next `.save()` will create another
 record!
 
 ```python
@@ -717,9 +667,8 @@ arguments to control **what** is written and **how** the Data API call behaves:
 >
 >- `update_fields` is a list of field names that restricts **which fields are allowed to be written**.
 >- It works **together** with `only_updated_fields`:
-   >
-- First, we compute the set of fields that would normally be updated (either only the updated ones, or all of them
-  > if `only_updated_fields=False`).
+>  - First, we compute the set of fields that would normally be updated (either only the updated ones, or all of them
+>   if `only_updated_fields=False`).
 >  - Then, we intersect that set with `update_fields`.
 >- The default is `None`, which means “no extra restriction” (all candidate fields are written).
 
@@ -890,17 +839,26 @@ chunked iteration.
 You can filter records using simple keyword arguments, field lookups and also raw criteria:
 
 ```python
-# Basic equality
+# Basic equality (exact match)
 people = Person.objects.find(name="Alice")
+
+# String operators (__startswith, __endswith, __contains)
+people = Person.objects.find(name__contains="Alice")
+people = Person.objects.find(name__startswith="Alice")
+people = Person.objects.find(name__endswith="Smith")
 
 # Comparison operators (__gt, __gte, __lt, __lte)
 people = Person.objects.find(birth_date__gt=date(1990, 1, 1))
+
+# Range operator (__range)
+people = Person.objects.find(age__range=(18, 30))
+people = Person.objects.find(birth_date__range=(date(1990, 1, 1), date(2000, 12, 31)))
 
 # Multiple criteria are AND‑ed by default
 people = Person.objects.find(name="Alice", is_active=True)
 
 # Raw criteria (using FileMaker's own query syntax)
-people = Person.objects.find(name__raw="Alice*", last_name__raw="Sm*")
+people = Person.objects.find(name__raw="Alice*", last_name__raw="*Sm*")
 ```
 
 Behind the scenes each call to `.find()` generates one or more **Find
@@ -1065,6 +1023,58 @@ for addresses in person.addresses.all().chunked(1000):
 >
 > For fully consistent snapshots, avoid concurrent modifications while iterating, or load all data at once if the
 > dataset is small enough.
+
+## Model utilities
+### Converting a portal row to a layout model (`as_layout_model`)
+
+Sometimes you have a portal record and you want to work with it as if it were
+coming from a dedicated layout (for example to reuse an existing model class,
+map fields with different Python names, or upload a container field that
+belongs to that layout). `portal_record.as_layout_model(model_class)` lets you do exactly
+this.
+
+Consider this portal model and a corresponding layout model:
+
+```python
+class AddressPortal(PortalModel):
+    class Meta:
+        table_occurrence = ADDRESS_PORTAL_TABLE_OCCURRENCE
+
+    city = fmdata.String(field_name=f"{ADDRESS_PORTAL_TABLE_OCCURRENCE}::City", field_type=FMFieldType.Text, )
+    picture = fmdata.Container(field_name=f"{ADDRESS_PORTAL_TABLE_OCCURRENCE}::Picture", )
+
+
+class AddressLayoutModel(Model):
+    class Meta:
+        layout = "address_layout"  # a layout based on the same table
+
+    # Note how the Python name can differ from the portal field name
+    the_city = fmdata.String(field_name="City", field_type=FMFieldType.Text)
+    picture = fmdata.Container(field_name="Picture", field_type=FMFieldType.Container)
+
+
+# Given a portal record
+address_portal_record = person.addresses.all()[0]
+# Convert the portal row to the layout model
+address_as_layout_record = address_portal_record.as_layout_model(model_class=AddressLayoutModel)
+```
+
+#### Updating a portal container field
+
+The Data API does not support updating a portal container field directly. So we use `as_layout_model` to convert the
+given portal record to a layout model record and then use `update_container()` on that:
+
+```python
+# Given a portal record
+address_portal_record = person.addresses.all()[0]
+# Convert the portal row to the layout model
+address_as_layout_record = address_portal_record.as_layout_model(model_class=AddressLayoutModel)
+
+# Upload a file to the portal container field via the layout model
+with open("/path/to/file.pdf", "rb") as file:
+    address_as_layout_record.update_container("picture", file)
+```
+
 
 ## Low-Level API Access
 
