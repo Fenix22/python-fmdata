@@ -19,55 +19,58 @@ layer.
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Connection and authentication](#connection-and-authentication)
-  - [Username / password](#username--password)
-  - [Username / password with data sources](#username--password-with-data-sources)
-  - [Claris Cloud](#claris-cloud)
-  - [Configuration Options](#configuration-options)
+    - [Username / password](#username--password)
+    - [Username / password with data sources](#username--password-with-data-sources)
+    - [Claris Cloud](#claris-cloud)
+    - [Configuration Options](#configuration-options)
 - [Defining models and portals](#defining-models-and-portals)
-  - [Field types: Python vs FileMaker](#field-types-python-vs-filemaker)
-  - [Field type limitations and gotchas](#field-type-limitations-and-gotchas)
+    - [Field types: Python vs FileMaker](#field-types-python-vs-filemaker)
+    - [Field type limitations and gotchas](#field-type-limitations-and-gotchas)
 - [Working with records](#working-with-records)
-  - [Model records](#model-records)
-    - [Find all records](#find-all-records)
-    - [Find with conditions](#find-with-conditions)
-    - [Iterate over the result set](#iterate-over-the-result-set)
-    - [Result set as a list](#result-set-as-a-list)
-    - [Count the number of results](#count-the-number-of-results)
-    - [Create a new record (and save it to the database)](#create-a-new-record-and-save-it-to-the-database)
-    - [Update an existing record](#update-an-existing-record)
-    - [Delete a record](#delete-a-record)
-    - [Refresh a record from the database](#refresh-a-record-from-the-database)
-    - [Read a record given a record_id](#read-a-record-given-a-record_id)
-  - [Portal records](#portal-records)
-    - [Read portal records of a model record](#read-portal-records-of-a-model-record)
-    - [Iterate over the result set](#iterate-over-the-result-set-1)
-    - [Result set as a list](#result-set-as-a-list-1)
-    - [Count the number of results](#count-the-number-of-results-1)
-    - [Create a portal record (and save it to the database)](#create-a-portal-record-and-save-it-to-the-database)
-    - [Update a portal record](#update-a-portal-record)
-    - [Delete a portal record](#delete-a-portal-record)
-    - [Create a portal record (without saving it to the database)](#create-a-portal-record-without-saving-it-to-the-database)
-  - [Saving records: full semantics of `record.save()`](#saving-records-full-semantics-of-recordsave)
-    - [`check_mod_id` (safe concurrent update)](#check_mod_id-safe-concurrent-update)
-    - [`force_insert` (soft cloning)](#force_insert-soft-cloning)
-    - [`force_update` (require an existing record)](#force_update-require-an-existing-record)
-    - [`only_updated_fields` (send only changed fields)](#only_updated_fields-send-only-changed-fields)
-    - [`update_fields` (restrict the fields being saved)](#update_fields-restrict-the-fields-being-saved)
+    - [Model records](#model-records)
+        - [Find all records](#find-all-records)
+        - [Find with conditions](#find-with-conditions)
+        - [Iterate over the result set](#iterate-over-the-result-set)
+        - [Result set as a list](#result-set-as-a-list)
+        - [Count the number of results](#count-the-number-of-results)
+        - [Create a new record (and save it to the database)](#create-a-new-record-and-save-it-to-the-database)
+        - [Update an existing record](#update-an-existing-record)
+        - [Delete a record](#delete-a-record)
+        - [Refresh a record from the database](#refresh-a-record-from-the-database)
+        - [Read a record given a record_id](#read-a-record-given-a-record_id)
+    - [Portal records](#portal-records)
+        - [Read portal records of a model record](#read-portal-records-of-a-model-record)
+        - [Iterate over the result set](#iterate-over-the-result-set-1)
+        - [Result set as a list](#result-set-as-a-list-1)
+        - [Count the number of results](#count-the-number-of-results-1)
+        - [Create a portal record (and save it to the database)](#create-a-portal-record-and-save-it-to-the-database)
+        - [Update a portal record](#update-a-portal-record)
+        - [Delete a portal record](#delete-a-portal-record)
+        - [Create a portal record (without saving it to the database)](#create-a-portal-record-without-saving-it-to-the-database)
+    - [Saving records: full semantics of `record.save()`](#saving-records-full-semantics-of-recordsave)
+        - [`check_mod_id` (safe concurrent update)](#check_mod_id-safe-concurrent-update)
+        - [`force_insert` (soft cloning)](#force_insert-soft-cloning)
+        - [`force_update` (require an existing record)](#force_update-require-an-existing-record)
+        - [`only_updated_fields` (send only changed fields)](#only_updated_fields-send-only-changed-fields)
+        - [`update_fields` (restrict the fields being saved)](#update_fields-restrict-the-fields-being-saved)
 - [Bulk operations](#bulk-operations)
-  - [Bulk operations on portal records](#bulk-operations-on-portal-records)
-  - [Transactions and mixed operations](#transactions-and-mixed-operations)
-  - [Full semantics of `model.save(portals=..., portals_to_delete=...)`](#full-semantics-of-modelsaveportals-portals_to_delete)
-  - [Example: Use `SavePortalsConfig` to control per‑row options](#example-use-saveportalsconfig-to-control-perrow-options)
-  - [Bulk operations on model records](#bulk-operations-on-model-records)
+    - [Bulk operations on portal records](#bulk-operations-on-portal-records)
+    - [Transactions and mixed operations](#transactions-and-mixed-operations)
+    - [Full semantics of
+      `model.save(portals=..., portals_to_delete=...)`](#full-semantics-of-modelsaveportals-portals_to_delete)
+    - [Example: Use
+      `SavePortalsConfig` to control per‑record options](#example-use-saveportalsconfig-to-control-perrecord-options)
+    - [Bulk operations on model records](#bulk-operations-on-model-records)
 - [Advanced querying](#advanced-querying)
-  - [Criteria](#criteria)
-  - [Sorting](#sorting)
-  - [Prefetching](#prefetching)
-  - [Offset / Limit (slicing)](#offset--limit-slicing)
-  - [Chunking](#chunking)
+    - [Filtering Criteria (find()/omit())](#filtering-criteria-find--omit)
+    - [Sorting](#sorting)
+    - [Prefetching](#prefetching)
+    - [Offset / Limit (slicing)](#offset--limit-slicing)
+    - [Chunking](#chunking)
 - [Model utilities](#model-utilities)
-  - [Converting a portal row to a layout model (`as_layout_model`)](#converting-a-portal-row-to-a-layout-model-as_layout_model)
-  - [Updating a portal container field](#updating-a-portal-container-field)
+    - [Converting a portal row to a layout model (
+      `as_layout_model`)](#converting-a-portal-row-to-a-layout-model-as_layout_model)
+    - [Updating a portal container field](#updating-a-portal-container-field)
 - [Low-Level API Access](#low-level-api-access)
 - [Contributing](#contributing)
 - [License](#license)
@@ -95,7 +98,8 @@ Working directly with the Data API quickly reveals a few challenges:
   data-corruption bug waiting to happen. You shouldn’t need to think about date formats on every API request.
 
 - Portals introduce yet another level of complexity.  
-  Retrieving the `record_id` of a newly created portal record isn’t straightforward. Creating, updating or deleting records in
+  Retrieving the `record_id` of a newly created portal record isn’t straightforward. Creating, updating or deleting
+  records in
   multiple portals within the same request (to simulate a transaction) is even trickier. Then there’s remembering **when
   to use the portal name** vs. the **table occurrence name**, how fields map to your models, and how they appear in API
   responses.  
@@ -295,8 +299,13 @@ fm_client = fmdata.Client(
 
 ## Defining models and portals
 
-`fmdata.orm` exposes a small ORM layer inspired by Django. You describe your
-FileMaker layout, fields and portals using Python classes.
+The following examples show how to model a FileMaker layout and its related portals using _fmdata_. A `Model` represents
+a single
+FileMaker layout you want to work with, while a `PortalModel` represents a portal on that layout.
+You can define multiple portals in a single layout, each one identified by its own portal name.
+
+> The _**portal name**_ is the name of the portal element in _layout mode_. Usually (when not customized) it corresponds to
+> the _**table occurrence name**_ the portal is based on.
 
 ```python
 import fmdata
@@ -379,7 +388,7 @@ Each field declaration is split conceptually in two halves:
     - serializing to Dict (`person.to_dict()`).
 - The Python type you work with (`String`, `Integer`, `Float`, `Decimal`,
   `Bool`, `Date`, `DateTime`, `Time`, `Container`). This controls how values
-  are validated, serialized to FileMaker and deserialized back.
+  are validated, serialized to FileMaker, and deserialized back.
 
 > #### Some attribute names are forbidden:
 >   - they cannot start with `_`,
@@ -444,6 +453,15 @@ internally. Only the following combinations are allowed:
 
 ### Field type limitations and gotchas
 
+-   **`None` values**  
+    - FileMaker does not have a dedicated `null` value concept. Instead, fields are either
+        **empty** (`""`) or contain a value. So we consider **empty** fields in FileMaker to be `None` in Python for each
+        field type except for Strings where `""` is a valid value.  
+
+    - When reading an **empty** field from FileMaker, we translate it to `None` in Python fields **except for Strings**
+      where we keep `""` as is.
+    - When writing `None` Python field to FileMaker, we **always write an empty string** in FileMaker.
+        - When writing an **empty** String to a FileMaker `Text` or `Number` field, we **write the empty string** as is.
 - **Float precision**
     - When you use `Float` on the Python side, you can **lose precision when
       reading from FileMaker**, both for `FMFieldType.Number` and
@@ -728,20 +746,19 @@ arguments to control **what** is written and **how** the Data API call behaves:
 >person.save(update_fields=["name"])
 >```
 >
->- `update_fields` is a list of field names that restricts **which fields are allowed to be written**.
->- It works **together** with `only_updated_fields`:
->  - First, we compute the set of fields that would normally be updated (either only the updated ones, or all of them
->   if `only_updated_fields=False`).
->  - Then, we intersect that set with `update_fields`.
->- The default is `None`, which means “no extra restriction” (all candidate fields are written).
+> - `update_fields` is a list of field names that restricts **which fields are allowed to be written**.
+> - It works **together** with `only_updated_fields`:
+>     - First, we compute the set of fields that would normally be updated (either only the updated ones, or all of them if `only_updated_fields=False`).
+>     - Then, we intersect that set with `update_fields`.
+> - The default is `None`, which means “no extra restriction” (all candidate fields are written).
 
 ## Bulk operations
 
 ### Bulk operations on portal records
 
 - **Bulk create portal records**  
-  You can create or update several portal records in **one single Data API call** by using `new()` and then calling
-  `save()` on the parent model.
+  You can create several portal records in **one single Data API call** by using `new()` and then calling
+  `save()` on the parent model passing the list of all new portal records in the `portals` argument.
   ```python
   # Create portal rows in memory
   new_home = person.addresses.new(city="Home City", zip="12345")
@@ -752,19 +769,25 @@ arguments to control **what** is written and **how** the Data API call behaves:
   ```
 
 - **Bulk update portal records**
+  You can update several portal records in **one single Data API call** by modifying them in memory and then calling
+  `save()` on the parent model passing the list of all modified portal records in the `portals` argument.
+-
 
-  ```python
-  addresses = person.addresses.all()
-  for addr in addresses:
-      if addr.city == "Old City":
-          addr.city = "New City"
-          addr.zip = "10001"
+```python
+addresses = person.addresses.all()
+for addr in addresses:
+    if addr.city == "Old City":
+        addr.city = "New City"
+        addr.zip = "10001"
+        # Notice that we are not calling addr.save()
 
-  # Persist all changes for the given portal rows in ONE call
-  person.save(portals=addresses)
-  ```
+# Persist all changes for the given portal rows in ONE call
+person.save(portals=addresses)
+```
 
 - **Bulk delete portal records**
+  You can delete several portal records in **one single Data API call** by calling `save()` on the parent model passing
+  the list of all deleted portal records in the `portals_to_delete` argument.
 
   ```python
   addresses = person.addresses.all()
@@ -835,7 +858,7 @@ The full semantics are:
 - `portals_to_delete`: iterable of portal records to **delete**.
     - Each item must be a `PortalModel` that already has a `record_id`
 
-#### Example: Use `SavePortalsConfig` to control per‑row options
+#### Example: Use `SavePortalsConfig` to control per‑record options
 
 ```python
 from fmdata.orm import SavePortalsConfig
@@ -894,18 +917,20 @@ performs **one API call per record**:
 
 ## Advanced querying
 
-The ORM offers a rich querying API very similar to Django's: criteria, sorting, prefetching, offset/limit and
+The ORM offers a rich querying API very similar to Django's: criteria, sorting, prefetching, offset/limit, and
 chunked iteration.
 
-### Criteria
+### Filtering Criteria (`find()` / `omit()`)
 
-You can filter records using simple keyword arguments, field lookups and also raw criteria:
+Both `find()` and `omit()` let you filter records using model field names and Python types.  
+You can combine simple keyword arguments, field-lookup operators, and even raw FileMaker criteria.  
+**All operators shown below apply equally to both `find()` and `omit()`.**
 
 ```python
 # Basic equality (exact match)
 people = Person.objects.find(name="Alice")
 
-# String operators (__startswith, __endswith, __contains)
+# Pattern operators (__startswith, __endswith, __contains)
 people = Person.objects.find(name__contains="Alice")
 people = Person.objects.find(name__startswith="Alice")
 people = Person.objects.find(name__endswith="Smith")
@@ -917,30 +942,29 @@ people = Person.objects.find(birth_date__gt=date(1990, 1, 1))
 people = Person.objects.find(age__range=(18, 30))
 people = Person.objects.find(birth_date__range=(date(1990, 1, 1), date(2000, 12, 31)))
 
-# Multiple criteria are AND‑ed by default
+# Multiple criteria in the same find/omit are AND‑ed by default
 people = Person.objects.find(name="Alice", is_active=True)
 
 # Raw criteria (using FileMaker's own query syntax)
 people = Person.objects.find(name__raw="Alice*", last_name__raw="*Sm*")
 ```
 
-Behind the scenes each call to `.find()` generates one or more **Find
-requests** to FileMaker. You can also explicitly build **Find/Omit** series:
+Behind the scenes each `.find()`/`.omit()` generates one **Find/Omit request** to FileMaker:
 
 - Every *Find* block **adds** records to the result set.
 - Every *Omit* block **removes** records from the current result set.
 - The order of the Find/Omit operations matters: they are executed **in
   sequence**, one after the other.
 
-`fmdata` exposes helpers so you can express this from Python while still using
-your model field names and Python types. For example:
+For example:
 
 ```python
 # Find people named Alice OR Bob, then omit inactive ones
 people = (
     Person
     .objects
-    .find(name__in=["Alice", "Bob"])  # first Find
+    .find(name="Alice")  # first Find
+    .find(name="Bob")  # second Find
     .omit(is_active=False)  # then Omit
 )
 
@@ -952,17 +976,6 @@ people = (
     .omit(city="Old City")
 )
 ```
-
-There are pre-built criteria converters (see `orm._process_omit_kwargs`)
-that interpret your keyword arguments based on the **Python field type**:
-
-- For `Date` fields you pass `datetime.date` instances.
-- For `DateTime` fields you pass `datetime.datetime` instances.
-- For numeric fields (`Integer`, `Decimal`, etc.) you pass Python numbers.
-- For `String` fields you pass Python strings.
-
-This keeps your code type-safe and readable while fmdata converts everything
-into the FileMaker query format.
 
 ### Sorting
 
@@ -1004,20 +1017,10 @@ records**, even if other queries would now return a different set.
 If you want to explicitly bypass prefetched data and re-load from the server, use `ignore_prefetched()` on your query:
 
 ```python
-people = (
-    Person
-    .objects
-    .find(is_active=True)
-    .prefetch("addresses")
-)
-
-# Later, run a query that must ignore prefetched portals
-fresh_people = (
-    Person
-    .objects
-    .ignore_prefetched()  # forces a new call instead of reusing prefetched portals
-    .find(is_active=True)
-)
+for person in people:
+    # forces a new call instead of reusing prefetched portals
+    for address in person.addresses.all().ignore_prefetched():
+        print(address.city)
 ```
 
 You can also prefetch only a **slice of a portal** by using `offset` and
@@ -1045,7 +1048,7 @@ people = Person.objects.find(is_active=True)[10:20]
 # First 10 records
 first_page = Person.objects.find(is_active=True)[:10]
 
-# Single record at position N
+# Single record at position N (the sixth record, index 5)
 person = Person.objects.find(is_active=True)[5]
 
 # You can slice portal relations as well
@@ -1078,7 +1081,8 @@ for addresses in person.addresses.all().chunked(1000):
 > **Warning about coherence**
 >
 > Chunked iteration is very powerful, but since each chunk is a separate call to the Data API, **the underlying
-> dataset can change between chunks** (inserts, updates, deletions). This can introduce:
+> dataset can change between chunks** (inserts, updates, deletions).  
+> Even though *fmdata* ensures **no duplicate records**, chucking can introduce:
 >
 > - **Holes**: some records might be skipped if previous records are deleted between calls.
 > - **Order shifts**: if records are inserted or deleted before the current offset, later chunks may return records you
@@ -1088,6 +1092,7 @@ for addresses in person.addresses.all().chunked(1000):
 > dataset is small enough.
 
 ## Model utilities
+
 ### Converting a portal row to a layout model (`as_layout_model`)
 
 Sometimes you have a portal record and you want to work with it as if it were
@@ -1138,7 +1143,6 @@ with open("/path/to/file.pdf", "rb") as file:
     address_as_layout_record.update_container("picture", file)
 ```
 
-
 ## Low-Level API Access
 
 For direct FileMaker Data API access:
@@ -1146,23 +1150,23 @@ For direct FileMaker Data API access:
 ```python
 # Direct API calls
 result = fm_client.create_record(
-    layout="people",
+    layout="person",
     field_data={"FullName": "Jane Doe", "EnrollmentDate": "01/15/2024"}
 ).raise_exception_if_has_error()  # Raise FileMakerErrorException if response contains an error message
 
 # Get record by ID
-record = fm_client.get_record(layout="people", record_id="123").raise_exception_if_has_error()
+record = fm_client.get_record(layout="person", record_id="123").raise_exception_if_has_error()
 
 # Perform find
 results = fm_client.find(
-    layout="people",
+    layout="person",
     query=[{"FullName": "John*"}],
     sort=[{"fieldName": "FullName", "sortOrder": "ascend"}]
 ).raise_exception_if_has_error()
 
 # Execute scripts
 script_result = fm_client.perform_script(
-    layout="people",
+    layout="person",
     name="MyScript",
     param="parameter_value"
 ).raise_exception_if_has_error()
