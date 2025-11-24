@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - '**'        # run on all branches (including master)
+      - '**'        # run on all branches (including main)
     tags:
       - 'v*.*.*'    # release tags like v1.2.3
 
@@ -164,13 +164,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure tag commit is on master
+      - name: Ensure tag commit is on main
         run: |
-          git fetch origin master:origin-master
-          if git merge-base --is-ancestor origin-master "${GITHUB_SHA}"; then
-            echo "Tag commit is contained in master."
+          git fetch origin main:origin-main
+          if git merge-base --is-ancestor origin-main "${GITHUB_SHA}"; then
+            echo "Tag commit is contained in main."
           else
-            echo "Error: Release tags must point to a commit on master."
+            echo "Error: Release tags must point to a commit on main."
             exit 1
           fi
 
