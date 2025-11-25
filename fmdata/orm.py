@@ -3,9 +3,11 @@ from __future__ import annotations
 import dataclasses
 import itertools
 from functools import cached_property
-from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union, Tuple, IO, TypeVar
+from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union, Tuple, IO, TypeVar, Generic, \
+    overload, ClassVar
 
 from marshmallow import Schema, fields
+from typing_extensions import Self
 
 import fmdata
 from fmdata import Client, FMVersion, clean_none
@@ -90,10 +92,20 @@ class ModelMeta:
     fm_portal_fields: dict[str, ModelMetaPortalField]
 
 
-@dataclasses.dataclass
-class PortalField:
-    model: Type[PortalModel]
-    name: str
+APORTAL = TypeVar('APORTAL')
+
+
+class PortalField(Generic[APORTAL]):
+
+    def __init__(self, model: Type[APORTAL], name: str):
+        self.model: Type[APORTAL] = model
+        self.name: str = name
+
+    def __get__(self, instance, owner) -> PortalManager[APORTAL]:
+        if instance is None:
+            # accessed on the class
+            return self
+        return super().__get__(instance, owner)
 
 
 @dataclasses.dataclass
@@ -169,13 +181,13 @@ class PortalMetaclass(type):
         return cls
 
 
-class PortalManager:
+class PortalManager(Generic[APORTAL]):
     def __init__(self):
         self._chunk_size = None
         self._slice_start: int = 0
         self._slice_stop: Optional[int] = None
         self._ignore_prefetched = False
-        self._result_cache: Optional[CacheIterator[PortalModel]] = None
+        self._result_cache: Optional[CacheIterator[APORTAL]] = None
         self._result_pages: Optional[CacheIterator[PortalPage]] = None
         self._is_root_manager = True
 
@@ -183,8 +195,8 @@ class PortalManager:
         self._model = model
         self._meta_portal = meta_portal
 
-    def _clone(self):
-        qs = PortalManager()
+    def _clone(self) -> PortalManager[APORTAL]:
+        qs: PortalManager[APORTAL] = PortalManager()
         qs._model = self._model
         qs._meta_portal = self._meta_portal
         qs._chunk_size = self._chunk_size
@@ -217,14 +229,14 @@ class PortalManager:
         self._fetch_all()
         return len(self._result_cache)
 
-    def __iter__(self) -> Iterator[PortalModel]:
+    def __iter__(self) -> Iterator[APORTAL]:
         self._fetch_all()
         return iter(self._result_cache)
 
-    def all(self):
+    def all(self) -> PortalManager[APORTAL]:
         return self._clone()
 
-    def first(self):
+    def first(self) -> Optional[APORTAL]:
         for obj in self[:1]:
             return obj
         return None
@@ -249,12 +261,23 @@ class PortalManager:
             else:
                 self._slice_start = self._slice_start + start
 
+    @overload
+    def __getitem__(self, k: int) -> APORTAL:
+        ...
+
+    @overload
+    def __getitem__(self, k: slice) -> PortalManager[APORTAL]:
+        ...
+
     def __getitem__(self, k):
         if isinstance(k, slice):
             if (k.start is not None and k.start < 0) or (k.stop is not None and k.stop < 0):
                 raise ValueError(ERROR_MESSAGE_NEGATIVE_INDEXING)
             if k.stop is not None and k.stop <= (k.start or 0):
                 raise ValueError("Stop index must be greater than start index.")
+            if k.step is not None:
+                raise ValueError(
+                    "Slicing with step is not supported directly on the PortalManager/QuerySet. Use list(qs)[start:stop:step] instead.")
 
             new_qs = self._clone()
             new_qs._set_new_slice(k.start, k.stop)
@@ -262,8 +285,7 @@ class PortalManager:
             if self._result_cache is not None:
                 new_qs._result_cache = CacheIterator(itertools.islice(self._result_cache.__iter__(), k.start, k.stop))
 
-            # In case step is present, the list() force the execution of the query then use the list step to provide the result
-            return list(new_qs)[::k.step] if k.step else new_qs
+            return new_qs
 
         elif isinstance(k, int):
             if k < 0:
@@ -284,26 +306,26 @@ class PortalManager:
                 % type(k).__name__
             )
 
-    def ignore_prefetched(self, avoid: bool = True):
+    def ignore_prefetched(self, avoid: bool = True) -> PortalManager[APORTAL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._ignore_prefetched = avoid
         return new_qs
 
-    def chunking(self, size):
+    def chunking(self, size) -> PortalManager[APORTAL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._chunk_size = size
         return new_qs
 
-    def new(self, **kwargs):
+    def new(self, **kwargs) -> APORTAL:
         portal = self._meta_portal.field.model(model=self._model, portal_name=self._meta_portal.filemaker_name,
                                                **kwargs)
         return portal
 
-    def create(self, **kwargs):
+    def create(self, **kwargs) -> Optional[APORTAL]:
         portal = self.new(**kwargs)
         portal.save()
 
@@ -365,9 +387,9 @@ class PortalManager:
     def portals_record_from_portal_page_iterator(self,
                                                  model: Model,
                                                  portal_fm_name: str,
-                                                 page_iterator: PortalPageIterator, ) -> Iterator[PortalModel]:
+                                                 page_iterator: PortalPageIterator, ) -> Iterator[APORTAL]:
         portal_field = self._model._meta.fm_portal_fields[portal_fm_name]
-        portal_model: Type[PortalModel] = portal_field.field.model
+        portal_model: Type[APORTAL] = portal_field.field.model
 
         already_seen_record_ids = set()
 
@@ -689,7 +711,7 @@ def add_portal_record_to_portal_data(portal_data: dict,
     return portal_data
 
 
-class ModelManager:
+class ModelManager(Generic[AMODEL]):
     def __init__(self):
         self._search_criteria: List[SearchCriteria] = []
         self._sort: List[SingleSortInput] = []
@@ -699,18 +721,18 @@ class ModelManager:
         self._slice_start: int = 0
         self._slice_stop: Optional[int] = None
         self._response_layout = None
-        self._result_cache: Optional[CacheIterator[Model]] = None
+        self._result_cache: Optional[CacheIterator[AMODEL]] = None
         self._scripts_responses_cache: Optional[CacheIterator[ScriptsResponse]] = None
         self._result_pages: Optional[CacheIterator[Page]] = None
         self._is_root_manager = True
 
-    def _set_model_class(self, model_class: Type[Model]):
+    def _set_model_class(self, model_class: Type[AMODEL]):
         self._model_class = model_class
         self._client: Client = model_class._meta.client
         self._layout: str = model_class._meta.layout
 
     def _clone(self):
-        qs = ModelManager()
+        qs: ModelManager[AMODEL] = ModelManager()
         qs._model_class = self._model_class
         qs._client = self._client
         qs._layout = self._layout
@@ -733,11 +755,11 @@ class ModelManager:
         if self._result_cache is None:
             self._execute_query()
 
-    def __len__(self):
+    def __len__(self) -> int:
         self._fetch_all()
         return len(self._result_cache)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[AMODEL]:
         self._fetch_all()
         return iter(self._result_cache)
 
@@ -745,16 +767,16 @@ class ModelManager:
         self._fetch_all()
         return iter(self._scripts_responses_cache)
 
-    def all(self):
+    def all(self) -> ModelManager[AMODEL]:
         return self._clone()
 
-    def get(self, record_id: str) -> Model:
+    def get(self, record_id: str) -> AMODEL:
         record = self._model_class(record_id=record_id)
         record.refresh_from_db()
 
         return record
 
-    def create(self, **kwargs):
+    def create(self, **kwargs) -> AMODEL:
         new_model = self._model_class(**kwargs)
         new_model.save()
 
@@ -811,7 +833,7 @@ class ModelManager:
         if self._is_sliced():
             raise TypeError("Cannot filter a query once a slice has been taken.")
 
-    def find(self, **kwargs):
+    def find(self, **kwargs) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
@@ -819,7 +841,7 @@ class ModelManager:
         new_qs._search_criteria.append(SearchCriteria(fields=criteria, is_omit=False))
         return new_qs
 
-    def omit(self, **kwargs):
+    def omit(self, **kwargs) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
@@ -835,7 +857,7 @@ class ModelManager:
 
         return res
 
-    def order_by(self, *fields):
+    def order_by(self, *fields) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         """Add sort options."""
@@ -853,14 +875,14 @@ class ModelManager:
 
         return new_qs
 
-    def chunking(self, size):
+    def chunking(self, size) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._chunk_size = size
         return new_qs
 
-    def prefetch_portal(self, portal: str, limit: int = None, offset: int = 0):
+    def prefetch_portal(self, portal: str, limit: int = None, offset: int = 0) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         if limit is None:
@@ -883,33 +905,41 @@ class ModelManager:
         new_qs._portals[portal_fm_name] = SinglePortalInput(offset=offset + 1, limit=limit)
         return new_qs
 
-    def response_layout(self, response_layout):
+    def response_layout(self, response_layout) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._response_layout = response_layout
         return new_qs
 
-    def prerequest_script(self, name, param=None):
+    def prerequest_script(self, name, param=None) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._scripts["prerequest"] = ScriptInput(name=name, param=param)
         return new_qs
 
-    def presort_script(self, name, param=None):
+    def presort_script(self, name, param=None) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._scripts["presort"] = ScriptInput(name=name, param=param)
         return new_qs
 
-    def after_script(self, name, param=None):
+    def after_script(self, name, param=None) -> ModelManager[AMODEL]:
         self._assert_not_sliced()
 
         new_qs = self._clone()
         new_qs._scripts["after"] = ScriptInput(name=name, param=param)
         return new_qs
+
+    @overload
+    def __getitem__(self, k: int) -> AMODEL:
+        ...
+
+    @overload
+    def __getitem__(self, k: slice) -> ModelManager[AMODEL]:
+        ...
 
     def __getitem__(self, k):
         if isinstance(k, slice):
@@ -917,6 +947,9 @@ class ModelManager:
                 raise ValueError(ERROR_MESSAGE_NEGATIVE_INDEXING)
             if k.stop is not None and k.stop <= (k.start or 0):
                 raise ValueError("Stop index must be greater than start index.")
+            if k.step is not None:
+                raise ValueError(
+                    "Slicing with step is not supported directly on the ModelManager/QuerySet. Use list(qs)[start:stop:step] instead.")
 
             new_qs = self._clone()
             new_qs._set_new_slice(k.start, k.stop)
@@ -924,8 +957,7 @@ class ModelManager:
             if self._result_cache is not None:
                 new_qs._result_cache = CacheIterator(itertools.islice(self._result_cache.__iter__(), k.start, k.stop))
 
-            # In case step is present, the list() force the execution of the query then use the list step to provide the result
-            return list(new_qs)[::k.step] if k.step else new_qs
+            return new_qs
 
         elif isinstance(k, int):
             if k < 0:
@@ -962,7 +994,7 @@ class ModelManager:
             else:
                 self._slice_start = self._slice_start + start
 
-    def first(self):
+    def first(self) -> Optional[AMODEL]:
         for obj in self[:1]:
             return obj
         return None
@@ -1341,7 +1373,7 @@ class Model(metaclass=ModelMetaclass):
     #     base_schema: FileMakerSchema = None
     #     schema_config: dict = None
 
-    objects: ModelManager
+    objects: ClassVar[ModelManager[Self]]
 
     def __init__(self, **kwargs):
         self.record_id: Optional[str] = kwargs.pop("record_id", None)

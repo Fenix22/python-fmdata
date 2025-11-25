@@ -199,7 +199,6 @@ class IntegrationTests(unittest.TestCase):
                 self.assertNotEquals(data[key], None)
 
             layout_result = fm_client.get_layout(layout=layout.name)
-            logger.info(json.dumps(asdict(layout_result.response)))
             layout_result.raise_exception_if_has_error()
 
             for field_meta in layout_result.response.field_meta_data:
@@ -777,6 +776,19 @@ class IntegrationTests(unittest.TestCase):
             )
             created.append(person)
 
+        logger.info("Testing error in slicing")
+        with self.assertRaises(Exception):
+            result = Person.objects.find(full_name__contains=f"{cohort_tag}")[-1:4]
+
+        with self.assertRaises(Exception):
+            result = Person.objects.find(full_name__contains=f"{cohort_tag}")[3:2]
+
+        with self.assertRaises(Exception):
+            result = Person.objects.find(full_name__contains=f"{cohort_tag}")[:0]
+
+        with self.assertRaises(Exception):
+            result = Person.objects.find(full_name__contains=f"{cohort_tag}")[::2]
+
         logger.info("Reading all people again with chunking (chunk_size=1)...")
         people = Person.objects.find(full_name__startswith=f"Test chunking Person {cohort_tag}").chunking(1)
 
@@ -866,6 +878,19 @@ class IntegrationTests(unittest.TestCase):
             person.addresses.create(
                 **address_data
             )
+
+        logger.info("Testing error in slicing")
+        with self.assertRaises(Exception):
+            result = person.addresses.all()[-1:4]
+
+        with self.assertRaises(Exception):
+            result = Person.addresses.all()[3:2]
+
+        with self.assertRaises(Exception):
+            result = Person.addresses.all()[:0]
+
+        with self.assertRaises(Exception):
+            result = Person.addresses.all()[::2]
 
         logger.info("Reading all addresses with chunking (chunk_size=1)...")
         addresses = person.addresses.chunking(1)
@@ -959,7 +984,8 @@ class IntegrationTests(unittest.TestCase):
             .find(full_name__contains=f"{cohort_tag}-000")
             .find(full_name__contains=f"{cohort_tag}-001")
             .omit(full_name__contains=f"{cohort_tag}-001")
-            .find(full_name__contains=f"{cohort_tag}-001") # Find that omit it than find it again, so we expect that is included
+            .find(full_name__contains=f"{cohort_tag}-001")
+            # Find that omit it than find it again, so we expect that is included
         )
 
         self.assertEqual(len(people), 2)
@@ -1175,7 +1201,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(address_refreshed.street, "New Street A")
         self.assertEqual(address_refreshed.zip, "New Zip A")
         self.assertEqual(address_refreshed.zone, None)
-        self.assertEqual(address_refreshed.city,"New City B")
+        self.assertEqual(address_refreshed.city, "New City B")
 
         # Then we save all the fields of the clone
         address_clone.save(only_updated_fields=False)  # It will save also zip to the old value
@@ -1185,7 +1211,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(address_refreshed.street, portal_data["street"])
         self.assertEqual(address_refreshed.zip, portal_data["zip"])
         self.assertEqual(address_refreshed.zone, None)
-        self.assertEqual(address_refreshed.city,"New City B")
+        self.assertEqual(address_refreshed.city, "New City B")
 
         logger.info("Clearing testing data...")
         Person.objects.find(full_name__contains=f"{cohort_tag}").delete()

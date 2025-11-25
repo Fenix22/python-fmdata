@@ -5,18 +5,18 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal as PythonDecimal
 from enum import Enum
-from typing import Any, Iterable, Optional, Set
+from typing import Any, Iterable, Optional, Generic, TypeVar
 
 from marshmallow import fields, ValidationError
 
 
 class FMFieldType(str, Enum):
-    Text = "Text"
-    Number = "Number"
-    Date = "Date"
-    Timestamp = "Timestamp"
-    Time = "Time"
-    Container = "Container"
+    Text = "text"
+    Number = "number"
+    Date = "date"
+    Timestamp = "timeStamp"
+    Time = "time"
+    Container = "container"
 
 
 # FileMaker US formats
@@ -102,7 +102,10 @@ class _FMFieldConfig:
     fm_type: FMFieldType
 
 
-class FMFieldMixin:
+TValue = TypeVar("TValue")
+
+
+class FMFieldMixin(Generic[TValue]):
     def __init__(self, *args, field_type: FMFieldType = None, field_name: str = None, read_only=False, **kwargs):
         if field_type is None:
             raise ValueError(
@@ -130,6 +133,12 @@ class FMFieldMixin:
 
         # MRO: will immediately call the marshmallow field __init__
         super().__init__(*args, **kwargs)
+
+    def __get__(self, instance, owner) -> Optional[TValue]:
+        if instance is None:
+            # accessed on the class
+            return self
+        return super().__get__(instance, owner)
 
     def _validate_fm_types(self, allowed: Iterable[FMFieldType]):
         if self._field_type not in allowed:
@@ -160,7 +169,7 @@ class FMFieldMixin:
 
 # ---- String ----
 
-class String(FMFieldMixin, fields.String):
+class String(FMFieldMixin[str], fields.String):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -231,7 +240,7 @@ class String(FMFieldMixin, fields.String):
 
 # ---- Integer ----
 
-class Integer(FMFieldMixin, fields.Integer):
+class Integer(FMFieldMixin[int], fields.Integer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -267,7 +276,7 @@ class Integer(FMFieldMixin, fields.Integer):
 
 # ---- Float ----
 
-class Float(FMFieldMixin, fields.Float):
+class Float(FMFieldMixin[float], fields.Float):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -305,7 +314,7 @@ class Float(FMFieldMixin, fields.Float):
 
 # ---- Decimal ----
 
-class Decimal(FMFieldMixin, fields.Decimal):
+class Decimal(FMFieldMixin[PythonDecimal], fields.Decimal):
     def __init__(self, *args, **kwargs):
         # With as_string=False, the value returned by marshmallow will be a float (so can lose precision).
         # With as_string=True, the value returned by marshmallow will be a string
@@ -349,7 +358,8 @@ class Decimal(FMFieldMixin, fields.Decimal):
 default_bool_truthy = fields.Boolean.truthy
 default_bool_falsy = fields.Boolean.falsy
 
-class Bool(FMFieldMixin, fields.Boolean):
+
+class Bool(FMFieldMixin[bool], fields.Boolean):
     def __init__(
             self,
             *args,
@@ -407,7 +417,7 @@ class Bool(FMFieldMixin, fields.Boolean):
 
 # ---- Date ----
 
-class Date(FMFieldMixin, fields.Date):
+class Date(FMFieldMixin[date], fields.Date):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -447,7 +457,7 @@ class Date(FMFieldMixin, fields.Date):
 
 # ---- DateTime ----
 
-class DateTime(FMFieldMixin, fields.DateTime):
+class DateTime(FMFieldMixin[datetime], fields.DateTime):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -487,7 +497,7 @@ class DateTime(FMFieldMixin, fields.DateTime):
 
 # ---- Time ----
 
-class Time(FMFieldMixin, fields.Time):
+class Time(FMFieldMixin[time], fields.Time):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -527,7 +537,7 @@ class Time(FMFieldMixin, fields.Time):
 
 # ---- Container ----
 
-class Container(FMFieldMixin, fields.String):
+class Container(FMFieldMixin[str], fields.String):
     def __init__(self, *args, repetition_number=None, **kwargs):
         field_name: Optional[str] = kwargs.pop("field_name", None)
 
