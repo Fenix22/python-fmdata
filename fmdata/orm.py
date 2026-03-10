@@ -1602,7 +1602,7 @@ class Model(metaclass=ModelMetaclass):
 
     def duplicate(self):
         # The duplicate API is available from FileMaker Server 19 (?)
-        assert_fm_version_gte(self._client, FMVersion.V19)
+        assert_fm_version_gte(self.objects._client, FMVersion.V19)
 
         if self.record_id is None:
             raise TypeError("Cannot duplicate a record without record_id. model.save() it first.")
