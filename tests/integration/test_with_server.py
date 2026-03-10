@@ -700,6 +700,9 @@ class IntegrationTests(unittest.TestCase):
         Person.objects.find(full_name__contains=f"{cohort_tag}")[:1000].delete()
 
     def test_duplicate_records(self):
+        if not fm_version_gte(fm_client, FMVersion.V19):
+            self.skipTest("This test requires FileMaker Server 19 or greater")
+
         cohort_tag = self.get_cohort_tag()
 
         logger.info(f"Deleting all person test data for cohort tag: {cohort_tag} ...")

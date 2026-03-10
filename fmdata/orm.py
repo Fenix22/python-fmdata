@@ -12,7 +12,7 @@ from typing_extensions import Self
 import fmdata
 from fmdata import Client, FMVersion, clean_none
 from fmdata.cache_iterator import CacheIterator
-from fmdata.client import portal_page_generator, fm_version_gte
+from fmdata.client import portal_page_generator, fm_version_gte, assert_fm_version_gte
 from fmdata.inputs import SingleSortInput, ScriptsInput, ScriptInput, SinglePortalInput, PortalsInput
 from fmdata.results import PageIterator, PortalData, PortalDataList, PortalPageIterator, Page, PortalPage
 from fmdata.utils import check_field_name
@@ -1601,6 +1601,9 @@ class Model(metaclass=ModelMetaclass):
         return self
 
     def duplicate(self):
+        # The duplicate API is available from FileMaker Server 19 (?)
+        assert_fm_version_gte(self._client, FMVersion.V19)
+
         if self.record_id is None:
             raise TypeError("Cannot duplicate a record without record_id. model.save() it first.")
 
