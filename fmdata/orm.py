@@ -590,7 +590,7 @@ def escape_filemaker_special_characters(s: Union[str, int]) -> Union[str, int]:
 
     Example:
       Input: 'Price>100 and "Discount"'
-      Output: 'Price\>100 and \"Discount\"'
+      Output: 'Price\\>100 and \\"Discount\\"'
     """
 
     if not isinstance(s, str):
@@ -1167,7 +1167,8 @@ class ModelManager(Generic[AMODEL]):
         )
 
     def _execute_get_record(self, record_id):
-        result = self._client.get_record(layout=self._layout, record_id=record_id)
+        # Request only the record without portals
+        result = self._client.get_record(layout=self._layout, record_id=record_id, portals={})
         result.raise_exception_if_has_error()
 
         return result
