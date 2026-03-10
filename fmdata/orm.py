@@ -1219,14 +1219,14 @@ class ModelManager(Generic[AMODEL]):
                 result.raise_exception_if_has_error()
 
             for portal_info in portals_to_delete:
-                field_data = self.get_delete_related_field_data(portals_to_delete=[portal_info])
+                delete_related_field_data = self.get_delete_related_field_data(portals_to_delete=[portal_info])
 
                 result = self._client.edit_record(
                     layout=self._layout,
                     record_id=record_id,
                     mod_id=mod_id,
-                    field_data=field_data,
-                    portal_data=portals_data)
+                    field_data=delete_related_field_data,
+                    portal_data={})
 
                 result.raise_exception_if_has_error()
 
