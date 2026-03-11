@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+from collections import OrderedDict
 from functools import cached_property
 from typing import Type, Optional, List, Any, Iterator, Iterable, Set, Dict, Union, Tuple, IO, TypeVar, Generic, \
     overload, ClassVar
 
-from marshmallow import Schema, fields
 from typing_extensions import Self
 
 import fmdata
@@ -39,10 +39,6 @@ def get_meta_attribute(cls, attrs_meta, attribute_name: str, default=None) -> An
     return default
 
 
-class FileMakerSchema(Schema):
-    pass
-
-
 @dataclasses.dataclass(frozen=True)
 class ScriptsResponse:
     prerequest: Optional[ScriptResponse] = None
@@ -63,11 +59,11 @@ class ScriptResponse:
 @dataclasses.dataclass
 class ModelMetaField:
     name: str
-    field: fields.Field
+    field: fmdata.FMField
 
     @cached_property
     def filemaker_name(self) -> str:
-        return self.field.data_key or self.name
+        return self.field._field_name or self.name
 
 
 @dataclasses.dataclass
@@ -84,8 +80,6 @@ class ModelMetaPortalField:
 class ModelMeta:
     client: Client
     layout: str
-    base_schema: Type[FileMakerSchema]
-    schema_config: dict
     fields: dict[str, ModelMetaField]
     fm_fields: dict[str, ModelMetaField]
     portal_fields: dict[str, ModelMetaPortalField]
@@ -112,10 +106,30 @@ class PortalField(Generic[APORTAL]):
 class PortalModelMeta:
     portal_name: str
     table_occurrence: str
-    base_schema: Type[FileMakerSchema]
-    schema_config: dict
     fields: dict[str, ModelMetaField]
     fm_fields: dict[str, ModelMetaField]
+
+
+def load_fields_data(fm_fields: dict[str, ModelMetaField], data: dict[str, Any]) -> dict[str, Any]:
+    loaded = {}
+    for fm_name, meta_field in fm_fields.items():
+        if fm_name in data:
+            loaded[meta_field.name] = meta_field.field._deserialize(data[fm_name], meta_field.name, data)
+    return loaded
+
+
+def dump_fields_data(fields: dict[str, ModelMetaField], data: dict[str, Any]) -> OrderedDict[str, Any]:
+    dumped = OrderedDict()
+    for field_name, meta_field in fields.items():
+        field = meta_field.field
+        if field.read_only:
+            continue
+
+        value = data.get(field_name)
+        serialized = field._serialize(value, field_name, data)
+        if serialized is not None:
+            dumped[meta_field.filemaker_name] = serialized
+    return dumped
 
 
 class PortalMetaclass(type):
@@ -133,15 +147,12 @@ class PortalMetaclass(type):
 
         _meta_fields: dict[str, ModelMetaField] = {}
         _meta_fm_fields: dict[str, ModelMetaField] = {}
-        schema_fields = {}
-
         for attr_name in dir(cls):
             attr_value = getattr(cls, attr_name)
 
-            if isinstance(attr_value, fields.Field):
+            if isinstance(attr_value, fmdata.FMField):
                 check_field_name(attr_name)
 
-                schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
 
@@ -152,31 +163,19 @@ class PortalMetaclass(type):
 
                 _meta_fm_fields[field_fm_name] = model_meta_field
 
-                if isinstance(attr_value, fmdata.FMFieldMixin):
+                if isinstance(attr_value, fmdata.FMField):
                     attr_value._field_name = field_fm_name
-
-        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
-                                                                    attribute_name="base_schema") or FileMakerSchema
-
-        schema_config = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="schema_config") or {}
 
         portal_name = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="portal_name")
         table_occurrence = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
                                               attribute_name="table_occurrence")
 
         cls._meta = PortalModelMeta(
-            base_schema=base_schema_cls,
-            schema_config=schema_config,
             portal_name=portal_name,
             table_occurrence=table_occurrence,
             fields=_meta_fields,
             fm_fields=_meta_fm_fields
         )
-
-        schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
-
-        cls.schema_class = schema_cls
-        cls.schema_instance = schema_cls(**schema_config)
 
         return cls
 
@@ -416,8 +415,6 @@ class PortalModel(metaclass=PortalMetaclass):
     # Example of Meta
     #
     # class Meta:
-    #     base_schema: FileMakerSchema = None
-    #     schema_config: dict = None
     #     portal_name: str = None
 
     def __init__(self, **kwargs):
@@ -447,8 +444,7 @@ class PortalModel(metaclass=PortalMetaclass):
             load_data = {key: _from_db[key] for key in _from_db.keys()
                          if key in self._meta.fm_fields}
 
-            schema_instance: Schema = self.__class__.schema_instance
-            fields = schema_instance.load(data=load_data)
+            fields = load_fields_data(fm_fields=self._meta.fm_fields, data=load_data)
 
             for field_name, value in fields.items():
                 super().__setattr__(field_name, value)
@@ -467,8 +463,7 @@ class PortalModel(metaclass=PortalMetaclass):
         return {field: getattr(self, field) for field in self._meta.fields}
 
     def _dump_fields(self):
-        schema_instance: Schema = self.__class__.schema_instance
-        return schema_instance.dump(self.to_dict())
+        return dump_fields_data(fields=self._meta.fields, data=self.to_dict())
 
     def __setattr__(self, attr_name, value):
         meta_field = self._meta.fields.get(attr_name, None)
@@ -1296,16 +1291,12 @@ class ModelMetaclass(type):
         _meta_portal_fields: dict[str, ModelMetaPortalField] = {}
         _meta_fm_portal_fields: dict[str, ModelMetaPortalField] = {}
 
-        schema_fields = {}
-        schema_portal_fields = {}
-
         for attr_name in dir(cls):
             attr_value = getattr(cls, attr_name)
 
-            if isinstance(attr_value, fields.Field):
+            if isinstance(attr_value, fmdata.FMField):
                 check_field_name(attr_name)
 
-                schema_fields[attr_name] = attr_value
                 model_meta_field = ModelMetaField(name=attr_name, field=attr_value)
                 _meta_fields[attr_name] = model_meta_field
 
@@ -1316,13 +1307,12 @@ class ModelMetaclass(type):
 
                 _meta_fm_fields[field_fm_name] = model_meta_field
 
-                if isinstance(attr_value, fmdata.FMFieldMixin):
+                if isinstance(attr_value, fmdata.FMField):
                     attr_value._field_name = field_fm_name
 
             if isinstance(attr_value, PortalField):
                 check_field_name(attr_name)
 
-                schema_portal_fields[attr_name] = attr_value
                 model_portal_meta_field = ModelMetaPortalField(name=attr_name, field=attr_value)
                 _meta_portal_fields[attr_name] = model_portal_meta_field
 
@@ -1331,11 +1321,6 @@ class ModelMetaclass(type):
                     raise ValueError(
                         f"Portal field with FileMaker name '{portal_fm_name}' already exists in model '{cls.__name__}'")
                 _meta_fm_portal_fields[portal_fm_name] = model_portal_meta_field
-
-        base_schema_cls: Type[FileMakerSchema] = get_meta_attribute(cls=cls, attrs_meta=attrs_meta,
-                                                                    attribute_name="base_schema") or FileMakerSchema
-
-        schema_config = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="schema_config") or {}
 
         client: Client = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="client")
         layout: str = get_meta_attribute(cls=cls, attrs_meta=attrs_meta, attribute_name="layout")
@@ -1346,17 +1331,11 @@ class ModelMetaclass(type):
         cls._meta = ModelMeta(
             client=client,
             layout=layout,
-            base_schema=base_schema_cls,
-            schema_config=schema_config,
             fields=_meta_fields,
             fm_fields=_meta_fm_fields,
             portal_fields=_meta_portal_fields,
             fm_portal_fields=_meta_fm_portal_fields
         )
-
-        schema_cls = type(f'{name}Schema', (base_schema_cls,), schema_fields)
-        cls.schema_class = schema_cls
-        cls.schema_instance = schema_cls(**schema_config)
 
         manager = base_manager()
         manager._set_model_class(cls)
@@ -1371,8 +1350,6 @@ class Model(metaclass=ModelMetaclass):
     # class Meta:
     #     client: FMClient = None
     #     layout: str = None
-    #     base_schema: FileMakerSchema = None
-    #     schema_config: dict = None
 
     objects: ClassVar[ModelManager[Self]]
 
@@ -1399,8 +1376,7 @@ class Model(metaclass=ModelMetaclass):
             load_data = {key: _from_db[key] for key in _from_db.keys()
                          if key in self._meta.fm_fields}
 
-            schema_instance: Schema = self.__class__.schema_instance
-            fields = schema_instance.load(data=load_data)
+            fields = load_fields_data(fm_fields=self._meta.fm_fields, data=load_data)
 
             for field_name, value in fields.items():
                 super().__setattr__(field_name, value)
@@ -1425,8 +1401,7 @@ class Model(metaclass=ModelMetaclass):
         record_data = result.response.data[0]
 
         load_data = {key: value for key, value in record_data.field_data.items() if key in self._meta.fm_fields}
-        schema_instance: Schema = self.__class__.schema_instance
-        fields = schema_instance.load(data=load_data)
+        fields = load_fields_data(fm_fields=self._meta.fm_fields, data=load_data)
 
         for field_name, value in fields.items():
             super().__setattr__(field_name, value)
@@ -1438,8 +1413,7 @@ class Model(metaclass=ModelMetaclass):
         return {field: getattr(self, field) for field in self._meta.fields}
 
     def _dump_fields(self):
-        schema_instance: Schema = self.__class__.schema_instance
-        return schema_instance.dump(self.to_dict())
+        return dump_fields_data(fields=self._meta.fields, data=self.to_dict())
 
     def __setattr__(self, attr_name, value):
         meta_field = self._meta.fields.get(attr_name, None)

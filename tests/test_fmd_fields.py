@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 from decimal import Decimal as PythonDecimal
 from zoneinfo import ZoneInfo
 
-from marshmallow import ValidationError
+from fmdata.fmd_fields import ValidationError
 
 import fmdata
 from fmdata import FMFieldType
@@ -22,17 +22,16 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fmdata.String()
         with self.assertRaises(ValueError):
             fmdata.String(field_type=FMFieldType.Text, data_key="x")
+        with self.assertRaises(ValueError):
+            fmdata.String(field_type=FMFieldType.Text, load_only=True)
 
         fld = fmdata.String(field_name="TestField", field_type=FMFieldType.Text)
+        self.assertEqual(fld._field_name, "TestField")
+        self.assertFalse(fld.read_only)
         self.assertIs(fld.__get__(None, object), fld)
         self.assertEqual(fld.field_type, FMFieldType.Text)
         self.assertIn("Expected str", str(fld._serialization_error(1, "str")))
         self.assertIn("Expected FM.text", str(fld._deserialization_error(1, "str")))
-
-        class Holder:
-            field = fld
-
-        self.assertIsNotNone(Holder.field.__get__(Holder(), Holder))
 
     # ---- String ----
     def test_string_with_text_fieldtype(self):
@@ -175,8 +174,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual("", fld._deserialize("", "x", {}))
         self.assertEqual("filedata", fld._deserialize("filedata", "x", {}))
 
-        self.assertEqual(True, fld._read_only)
-        self.assertEqual(True, fld.load_only)
+        self.assertEqual(True, fld.read_only)
 
     # ---- Integer ----
     def test_integer_with_Number_fieldtype(self):
@@ -283,7 +281,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual(None, fld._deserialize("", "x", {}))
         # Accept strings and return Decimal
         self.assertEqual(PythonDecimal("12.34"), fld._deserialize("12.34", "x", {}))
-        # Accept integers too (marshmallow handles them)
+        # Accept integers too.
         self.assertEqual(PythonDecimal("7"), fld._deserialize(7, "x", {}))
 
         with self.assertRaises(ValidationError):

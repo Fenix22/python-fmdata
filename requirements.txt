@@ -1,4 +1,3 @@
-marshmallow
 wheel
 requests
 tzdata

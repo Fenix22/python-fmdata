@@ -7,8 +7,6 @@ from decimal import Decimal as PythonDecimal
 from enum import Enum
 from typing import Any, Iterable, Optional, Generic, TypeVar
 
-from marshmallow import fields, ValidationError
-
 
 class FMFieldType(str, Enum):
     Text = "text"
@@ -105,7 +103,7 @@ class _FMFieldConfig:
 TValue = TypeVar("TValue")
 
 
-class FMFieldMixin(Generic[TValue]):
+class FMField(Generic[TValue]):
     def __init__(self, *args, field_type: FMFieldType = None, field_name: str = None, read_only=False, **kwargs):
         if field_type is None:
             raise ValueError(
@@ -114,29 +112,21 @@ class FMFieldMixin(Generic[TValue]):
             )
 
         if "data_key" in kwargs:
-            raise ValueError("data_key is not supported for FM fields. Use fm_name instead.")
-        else:
-            # When none marshmallow will use the field name as the key in the serialized data
-            kwargs["data_key"] = field_name
+            raise ValueError("data_key is not supported for FM fields. Use field_name instead.")
+        if "load_only" in kwargs:
+            raise ValueError("load_only is not supported for FM fields. Use read_only instead.")
 
         if field_type == FMFieldType.Container:
             read_only = True
 
-        self._read_only = read_only
-        if read_only:
-            kwargs["load_only"] = True
-
         self._field_type = field_type
+        self.read_only = read_only
 
-        # self._fm_name will be populated with the field_name during the Model initialization
+        # This is updated during model/portal class initialization with the effective FileMaker field name.
         self._field_name = field_name
-
-        # MRO: will immediately call the marshmallow field __init__
-        super().__init__(*args, **kwargs)
 
     def __get__(self, instance, owner) -> Optional[TValue]:
         if instance is None:
-            # accessed on the class
             return self
         return super().__get__(instance, owner)
 
@@ -169,7 +159,7 @@ class FMFieldMixin(Generic[TValue]):
 
 # ---- String ----
 
-class String(FMFieldMixin[str], fields.String):
+class String(FMField[str]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -240,7 +230,7 @@ class String(FMFieldMixin[str], fields.String):
 
 # ---- Integer ----
 
-class Integer(FMFieldMixin[int], fields.Integer):
+class Integer(FMField[int]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -268,15 +258,18 @@ class Integer(FMFieldMixin[int], fields.Integer):
         if value == "" or value is None:
             return None
 
+        if isinstance(value, bool):
+            raise self._deserialization_error(value=value, expected="int")
+
         try:
-            return super()._deserialize(value, attr, data, **kwargs)
+            return int(value)
         except Exception as e:
             raise self._deserialization_error(value=value, expected="int") from e
 
 
 # ---- Float ----
 
-class Float(FMFieldMixin[float], fields.Float):
+class Float(FMField[float]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -307,18 +300,17 @@ class Float(FMFieldMixin[float], fields.Float):
             raise self._deserialization_error(value=value, expected="float")
 
         try:
-            return super()._deserialize(value, attr, data, **kwargs)
+            return float(value)
         except Exception as e:
             raise self._deserialization_error(value=value, expected="float") from e
 
 
 # ---- Decimal ----
 
-class Decimal(FMFieldMixin[PythonDecimal], fields.Decimal):
+class Decimal(FMField[PythonDecimal]):
     def __init__(self, *args, **kwargs):
-        # With as_string=False, the value returned by marshmallow will be a float (so can lose precision).
-        # With as_string=True, the value returned by marshmallow will be a string
-        kwargs.setdefault("as_string", True)
+        # With as_string=False, the value returned by the serializer would be a float (so can lose precision).
+        # With as_string=True, the value returned by the serializer is a string.
         super().__init__(*args, **kwargs)
 
         self._validate_fm_types({FMFieldType.Number, FMFieldType.Text})
@@ -348,18 +340,22 @@ class Decimal(FMFieldMixin[PythonDecimal], fields.Decimal):
             raise self._deserialization_error(value=value, expected="Decimal")
 
         try:
-            return super()._deserialize(value, attr, data, **kwargs)
+            return PythonDecimal(str(value))
         except Exception as e:
             raise self._deserialization_error(value=value, expected="Decimal") from e
 
 
 # ---- Bool ----
 
-default_bool_truthy = fields.Boolean.truthy
-default_bool_falsy = fields.Boolean.falsy
+default_bool_truthy = {
+    "true", "True", "TRUE", "1", 1, True, "yes", "Yes", "YES", "on", "On", "ON", "y", "Y", "t", "T",
+}
+default_bool_falsy = {
+    "false", "False", "FALSE", "0", 0, False, "no", "No", "NO", "off", "Off", "OFF", "n", "N", "f", "F",
+}
 
 
-class Bool(FMFieldMixin[bool], fields.Boolean):
+class Bool(FMField[bool]):
     def __init__(
             self,
             *args,
@@ -417,7 +413,7 @@ class Bool(FMFieldMixin[bool], fields.Boolean):
 
 # ---- Date ----
 
-class Date(FMFieldMixin[date], fields.Date):
+class Date(FMField[date]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -457,7 +453,7 @@ class Date(FMFieldMixin[date], fields.Date):
 
 # ---- DateTime ----
 
-class DateTime(FMFieldMixin[datetime], fields.DateTime):
+class DateTime(FMField[datetime]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -497,7 +493,7 @@ class DateTime(FMFieldMixin[datetime], fields.DateTime):
 
 # ---- Time ----
 
-class Time(FMFieldMixin[time], fields.Time):
+class Time(FMField[time]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -537,7 +533,7 @@ class Time(FMFieldMixin[time], fields.Time):
 
 # ---- Container ----
 
-class Container(FMFieldMixin[str], fields.String):
+class Container(FMField[str]):
     def __init__(self, *args, repetition_number=None, **kwargs):
         field_name: Optional[str] = kwargs.pop("field_name", None)
 
@@ -581,7 +577,7 @@ class Container(FMFieldMixin[str], fields.String):
 
 __all__ = [
     "FMFieldType",
-    "FMFieldMixin",
+    "FMField",
     "String",
     "Integer",
     "Float",
@@ -592,3 +588,7 @@ __all__ = [
     "Time",
     "Container",
 ]
+
+
+class ValidationError(Exception):
+    pass

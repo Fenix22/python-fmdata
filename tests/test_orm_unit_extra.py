@@ -8,27 +8,24 @@ import fmdata
 from fmdata import FMFieldType
 from fmdata.client import FMVersion
 from fmdata.orm import (
-    A_REALLY_BIG_LIMIT,
     Criteria,
-    ERROR_MESSAGE_NEGATIVE_INDEXING,
-    ERROR_MESSAGE_RECORD_ID_REQUIRED,
-    FileMakerSchema,
     Model,
     ModelManager,
     PortalField,
     PortalManager,
     PortalModel,
-    SavePortalsConfig,
     SearchCriteria,
     add_portal_record_to_portal_data,
     escape_filemaker_special_characters,
     get_fm_value,
     get_meta_attribute,
+    dump_fields_data,
+    load_fields_data,
     patch_from_model_or_portal,
     portal_model_iterator_from_portal_data,
 )
-from fmdata.results import GetRecordResult, GetRecordsResult, Page, PortalData, PortalPage
 from fmdata.results import CreateRecordResult
+from fmdata.results import GetRecordResult, GetRecordsResult, Page, PortalData, PortalPage
 
 
 def make_http_response(response=None, messages=None):
@@ -54,17 +51,10 @@ CLIENT = Mock()
 CLIENT.version = FMVersion.V22
 
 
-class AuditSchema(FileMakerSchema):
-    class Meta:
-        ordered = True
-
-
 class AddressPortal(PortalModel):
     class Meta:
         table_occurrence = "AddressTO"
         portal_name = "Addresses"
-        base_schema = AuditSchema
-        schema_config = {"unknown": "exclude"}
 
     city = fmdata.String(field_name="AddressTO::City", field_type=FMFieldType.Text)
     zip_code = fmdata.Integer(field_name="AddressTO::Zip", field_type=FMFieldType.Number)
@@ -74,8 +64,6 @@ class Person(Model):
     class Meta:
         client = CLIENT
         layout = "People"
-        base_schema = AuditSchema
-        schema_config = {"unknown": "exclude"}
 
     name = fmdata.String(field_name="Name", field_type=FMFieldType.Text)
     age = fmdata.Integer(field_name="Age", field_type=FMFieldType.Number)
@@ -84,6 +72,27 @@ class Person(Model):
 
 
 class ORMUtilityTests(unittest.TestCase):
+    def test_load_dump_helpers_and_field_descriptor(self):
+        self.assertEqual(
+            load_fields_data(Person._meta.fm_fields, {"Name": "Alice", "Age": "30", "Photo": "http://x"}),
+            {"name": "Alice", "age": 30, "photo": "http://x"},
+        )
+        self.assertEqual(
+            dump_fields_data(Person._meta.fields, {"name": "Alice", "age": 30, "photo": "http://x"}),
+            {"Name": "Alice", "Age": 30},
+        )
+
+        field = fmdata.String(field_name="Name", field_type=FMFieldType.Text)
+        class Holder:
+            value = field
+
+        holder = Holder()
+        holder.value = "Alice"
+        self.assertEqual(holder.value, "Alice")
+        self.assertIs(Holder.value, field)
+        self.assertEqual(field._field_name, "Name")
+        self.assertFalse(field.read_only)
+
     def test_get_meta_attribute_and_field_metadata(self):
         class Base:
             _meta = type("Meta", (), {"value": "base"})()
@@ -98,6 +107,10 @@ class ORMUtilityTests(unittest.TestCase):
         self.assertEqual(Person._meta.fields["name"].filemaker_name, "Name")
         self.assertEqual(Person._meta.portal_fields["addresses"].filemaker_name, "Addresses")
         self.assertEqual(AddressPortal._meta.fields["city"].filemaker_name, "AddressTO::City")
+        self.assertEqual(Person._meta.fm_fields["Name"].name, "name")
+        self.assertEqual(Person._meta.fm_portal_fields["Addresses"].name, "addresses")
+        self.assertEqual(list(Person._meta.fields.keys()), ["age", "name", "photo"])
+        self.assertEqual(list(AddressPortal._meta.fields.keys()), ["city", "zip_code"])
 
     def test_duplicate_filemaker_names_raise(self):
         with self.assertRaises(ValueError):
