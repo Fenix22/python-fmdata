@@ -402,14 +402,17 @@ class ModelManagerAndModelTests(unittest.TestCase):
         CLIENT.find_paginated.return_value = type("Paged", (), {"pages": fake_pages})()
         qs._execute_query()
         CLIENT.get_records_paginated.assert_called_once()
+        self.assertEqual(CLIENT.get_records_paginated.call_args.kwargs["portals"], {})
 
         qs = Person.objects.find(name="Alice")
         qs._execute_query()
         CLIENT.find_paginated.assert_called_once()
+        self.assertEqual(CLIENT.find_paginated.call_args.kwargs["portals"], {})
 
         result = GetRecordResult(http_response=make_http_response(response={"data": []}), layout="People", client=CLIENT)
         CLIENT.get_record.return_value = result
         self.assertIs(qs._execute_get_record("1"), result)
+        self.assertEqual(CLIENT.get_record.call_args.kwargs["portals"], {})
 
         dup_result = Mock()
         dup_result.raise_exception_if_has_error = Mock()
@@ -498,6 +501,58 @@ class ModelManagerAndModelTests(unittest.TestCase):
         self.assertEqual(scripts[0].presort.result, "sort")
         self.assertEqual(scripts[0].prerequest.result, "pre")
 
+    def test_record_selection_does_not_prefetch_portals_unless_requested(self):
+        qs = Person.objects.all()
+        page = Page(
+            result=GetRecordsResult(
+                http_response=make_http_response(
+                    response={
+                        "data": [
+                            {
+                                "fieldData": {"Name": "Alice", "Age": 30},
+                                "recordId": "1",
+                                "modId": "2",
+                                "portalData": {"Addresses": [{"recordId": "10", "modId": "1", "AddressTO::City": "Berlin"}]},
+                            }
+                        ]
+                    }
+                ),
+                layout="People",
+                client=CLIENT,
+            )
+        )
+        model = list(qs.records_iterator_from_page_iterator(iter([page]), portals_input={}))[0]
+        self.assertEqual(model._portals_prefetch, {})
+
+        qs_prefetch = Person.objects.prefetch_portal("addresses", limit=1)
+        model_prefetch = list(qs_prefetch.records_iterator_from_page_iterator(iter([page]), portals_input=qs_prefetch._portals))[0]
+        self.assertIn("Addresses", model_prefetch._portals_prefetch)
+
+    def test_get_does_not_load_portals_unless_explicitly_prefetched(self):
+        get_result = GetRecordResult(
+            http_response=make_http_response(
+                response={
+                    "data": [
+                        {
+                            "fieldData": {"Name": "Alice", "Age": 30},
+                            "recordId": "1",
+                            "modId": "2",
+                            "portalData": {"Addresses": [{"recordId": "10", "modId": "1", "AddressTO::City": "Berlin"}]},
+                        }
+                    ]
+                }
+            ),
+            layout="People",
+            client=CLIENT,
+        )
+
+        with patch.object(Person.objects, "_execute_get_record", return_value=get_result) as execute_get_record:
+            model = Person.objects.get("1")
+
+        self.assertEqual(model.name, "Alice")
+        self.assertEqual(model._portals_prefetch, {})
+        execute_get_record.assert_called_once_with("1")
+
     def test_portal_prefetch_and_portal_iterator(self):
         person = self.make_person(record_id="1", name="Alice", age=30)
         qs = Person.objects.all()
@@ -545,6 +600,15 @@ class ModelManagerAndModelTests(unittest.TestCase):
             person.save(check_mod_id=True)
         self.assertEqual(person.mod_id, "3")
 
+        person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+        person.name = "Bob"
+        person._updated_fields = {"name"}
+        with patch.object(Person.objects, "_execute_edit_record", return_value=edit_result) as execute_edit:
+            person.save()
+        self.assertEqual(execute_edit.call_args.kwargs["field_data"], {"Name": "Bob"})
+        self.assertEqual(execute_edit.call_args.kwargs["portals_data"], {})
+        self.assertEqual(execute_edit.call_args.kwargs["portals_to_delete"], [])
+
         with patch.object(Person.objects, "_execute_edit_record") as edit:
             self.make_person(record_id="1", mod_id="2").save()
         edit.assert_not_called()
@@ -564,6 +628,36 @@ class ModelManagerAndModelTests(unittest.TestCase):
             person.save(portals=[portal])
         self.assertEqual(portal.record_id, "10")
         self.assertEqual(portal.mod_id, "11")
+
+        person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+        person._updated_fields = set()
+        portal = AddressPortal(model=person, record_id="10", mod_id="11", city="Paris")
+        with patch.object(Person.objects, "_execute_edit_record", return_value=edit_result) as execute_edit:
+            person.save(portals=[portal])
+        self.assertEqual(execute_edit.call_args.kwargs["field_data"], {})
+        self.assertEqual(
+            execute_edit.call_args.kwargs["portals_data"],
+            {"Addresses": [{"AddressTO::City": "Paris", "recordId": "10"}]},
+        )
+        self.assertEqual(execute_edit.call_args.kwargs["portals_to_delete"], [])
+
+        person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+        person._updated_fields = set()
+        portal_to_delete = AddressPortal(model=person, record_id="10", mod_id="11", city="Paris")
+        with patch.object(Person.objects, "_execute_edit_record", return_value=edit_result) as execute_edit:
+            person.save(portals_to_delete=[portal_to_delete])
+        self.assertEqual(execute_edit.call_args.kwargs["field_data"], {})
+        self.assertEqual(execute_edit.call_args.kwargs["portals_data"], {})
+        self.assertEqual(execute_edit.call_args.kwargs["portals_to_delete"], [("Addresses", "10")])
+
+        person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+        portal_to_delete = AddressPortal(model=person, record_id="10", mod_id="11", city="Paris")
+        with patch.object(Person.objects, "_execute_edit_record", return_value=edit_result) as execute_edit:
+            portal_to_delete.delete()
+        self.assertEqual(execute_edit.call_args.kwargs["field_data"], {})
+        self.assertEqual(execute_edit.call_args.kwargs["portals_data"], {})
+        self.assertEqual(execute_edit.call_args.kwargs["portals_to_delete"], [("Addresses", "10")])
+        self.assertIsNone(portal_to_delete.record_id)
 
         with self.assertRaises(ValueError):
             self.make_person().save(force_update=True)
