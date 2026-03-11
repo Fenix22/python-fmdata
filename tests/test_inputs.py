@@ -213,6 +213,12 @@ class TestInputs(unittest.TestCase):
         result = _date_formats_to_value(DateFormats.FILE_LOCALE)
         self.assertEqual(result, 1)
 
+    def test_date_formats_to_value_custom_value_object(self):
+        class CustomDateFormat:
+            value = 7
+
+        self.assertEqual(_date_formats_to_value(CustomDateFormat()), 7)
+
 
 if __name__ == '__main__':
     unittest.main()

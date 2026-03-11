@@ -1,5 +1,5 @@
 import unittest
-from fmdata.utils import clean_none
+from fmdata.utils import check_field_name, clean_none
 
 
 class TestUtils(unittest.TestCase):
@@ -63,6 +63,10 @@ class TestUtils(unittest.TestCase):
         }
         result = clean_none(input_dict)
         self.assertEqual(result, {})
+
+    def test_check_field_name_empty(self):
+        with self.assertRaises(ValueError):
+            check_field_name("")
 
 
 if __name__ == '__main__':

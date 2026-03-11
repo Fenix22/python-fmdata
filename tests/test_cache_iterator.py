@@ -148,6 +148,7 @@ class TestCacheIterator(unittest.TestCase):
         self.assertTrue(cache_iter.empty())
         self.assertEqual(cache_iter.cached_values, [])
         self.assertTrue(cache_iter.cache_complete)
+        self.assertTrue(cache_iter.empty())
 
     def test_empty_property_after_partial_consumption(self):
         """Test empty property after partial consumption."""

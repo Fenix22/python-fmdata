@@ -17,6 +17,23 @@ from fmdata import FMFieldType
 # Unit-like tests for fmd_fields serialization/deserialization (no server required)
 # --------------------------------------------------------------------------------------
 class FMFieldsSerializationTests(unittest.TestCase):
+    def test_field_mixin_helpers_and_invalid_kwargs(self):
+        with self.assertRaises(ValueError):
+            fmdata.String()
+        with self.assertRaises(ValueError):
+            fmdata.String(field_type=FMFieldType.Text, data_key="x")
+
+        fld = fmdata.String(field_name="TestField", field_type=FMFieldType.Text)
+        self.assertIs(fld.__get__(None, object), fld)
+        self.assertEqual(fld.field_type, FMFieldType.Text)
+        self.assertIn("Expected str", str(fld._serialization_error(1, "str")))
+        self.assertIn("Expected FM.text", str(fld._deserialization_error(1, "str")))
+
+        class Holder:
+            field = fld
+
+        self.assertIsNotNone(Holder.field.__get__(Holder(), Holder))
+
     # ---- String ----
     def test_string_with_text_fieldtype(self):
         fld = fmdata.String(field_type=FMFieldType.Text)
@@ -639,6 +656,7 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual(2, fld._repetition_number)
 
         # deserialize
+        self.assertIsNone(fld._deserialize(None, "x", {}))
         self.assertEqual("http://x/y", fld._deserialize("http://x/y", "x", {}))
         with self.assertRaises(ValidationError):
             fld._deserialize(123, "x", {})
@@ -647,6 +665,54 @@ class FMFieldsSerializationTests(unittest.TestCase):
         fld = fmdata.Container(field_name="ContainerField[3]")
         # _get_last_bracket_content is internal; behavior is not exposed directly, but construction should not error
         self.assertIsInstance(fld, fmdata.Container)
+
+    def test_invalid_internal_field_types_raise_wrapped_errors(self):
+        string_fld = fmdata.String(field_type=FMFieldType.Text)
+        string_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            string_fld._serialize("x", "x", {})
+        with self.assertRaises(ValidationError):
+            string_fld._deserialize("x", "x", {})
+
+        int_fld = fmdata.Integer(field_type=FMFieldType.Number)
+        int_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            int_fld._serialize(1, "x", {})
+
+        float_fld = fmdata.Float(field_type=FMFieldType.Number)
+        float_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            float_fld._serialize(1.2, "x", {})
+
+        dec_fld = fmdata.Decimal(field_type=FMFieldType.Number)
+        dec_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            dec_fld._serialize(PythonDecimal("1.2"), "x", {})
+
+        date_fld = fmdata.Date(field_type=FMFieldType.Date)
+        date_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            date_fld._serialize(date.today(), "x", {})
+        with self.assertRaises(ValidationError):
+            date_fld._deserialize("05/18/2024", "x", {})
+
+        datetime_fld = fmdata.DateTime(field_type=FMFieldType.Timestamp)
+        datetime_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            datetime_fld._serialize(datetime.now(), "x", {})
+        with self.assertRaises(ValidationError):
+            datetime_fld._deserialize("05/18/2024 06:30:05", "x", {})
+
+        time_fld = fmdata.Time(field_type=FMFieldType.Time)
+        time_fld._field_type = "broken"
+        with self.assertRaises(ValueError):
+            time_fld._serialize(time(1, 2, 3), "x", {})
+        with self.assertRaises(ValidationError):
+            time_fld._deserialize("06:30:05", "x", {})
+
+    def test_container_invalid_repetition_number(self):
+        with self.assertRaises(ValueError):
+            fmdata.Container(field_name="Picture", repetition_number="bad")
 
     def _allowed_types_by_class(self):
         return {
