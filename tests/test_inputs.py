@@ -1,8 +1,8 @@
 import unittest
 import json
 from fmdata.inputs import (
-    DateFormats, _scripts_to_dict, _sort_to_params, 
-    _portals_to_params, _date_formats_to_value
+    DateFormats, _scripts_to_dict, _sort_to_params,
+    _portals_to_params, _date_formats_to_value, _sort_to_params_for_get_records
 )
 
 
@@ -121,6 +121,12 @@ class TestInputs(unittest.TestCase):
         ]
         result = _sort_to_params(sort_input)
         self.assertEqual(result, sort_input)
+
+    def test_sort_to_params_for_get_records(self):
+        sort_input = [{'fieldName': 'name', 'sortOrder': 'ascend'}]
+        self.assertEqual(_sort_to_params_for_get_records(None), None)
+        self.assertEqual(_sort_to_params_for_get_records([]), None)
+        self.assertEqual(_sort_to_params_for_get_records(sort_input), json.dumps(sort_input))
 
     def test_portals_to_params_none(self):
         """Test _portals_to_params with None input."""

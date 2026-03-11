@@ -29,6 +29,12 @@ class FMFieldsSerializationTests(unittest.TestCase):
         self.assertEqual(fld._field_name, "TestField")
         self.assertFalse(fld.read_only)
         self.assertIs(fld.__get__(None, object), fld)
+        class Holder:
+            value = fld
+        holder = Holder()
+        holder.value = "abc"
+        self.assertEqual(holder.value, "abc")
+        self.assertIn("super", repr(fld.__get__(holder, Holder)))
         self.assertEqual(fld.field_type, FMFieldType.Text)
         self.assertIn("Expected str", str(fld._serialization_error(1, "str")))
         self.assertIn("Expected FM.text", str(fld._deserialization_error(1, "str")))
@@ -198,6 +204,8 @@ class FMFieldsSerializationTests(unittest.TestCase):
             fld._deserialize("42.3e4", "x", {})
         with self.assertRaises(ValidationError):
             fld._deserialize("ciao", "x", {})
+        with self.assertRaises(ValidationError):
+            fld._deserialize(True, "x", {})
 
     def test_integer_with_text_fieldtype(self):
         fld = fmdata.Integer(field_type=FMFieldType.Text)

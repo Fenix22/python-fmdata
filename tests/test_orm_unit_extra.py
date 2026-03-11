@@ -169,6 +169,62 @@ class PortalModelAndManagerTests(unittest.TestCase):
     def make_person(self, **kwargs):
         return Person(**kwargs)
 
+    def test_portal_manager_internal_branching(self):
+        person = self.make_person(record_id="1", name="Alice", age=30)
+        self.assertIn("super", repr(Person.addresses.__get__(person, Person)))
+
+        qs = person.addresses.all()
+        self.assertEqual(qs.chunking(2)._chunk_size, 2)
+        qs._result_cache = fmdata.CacheIterator(iter([AddressPortal(model=person, record_id="10", city="A")]))
+        self.assertEqual(qs.first().record_id, "10")
+        with self.assertRaises(ValueError):
+            person.addresses.all()[-1:]
+
+        no_prefetch = person.addresses.all()
+        with patch.object(no_prefetch, "_execute_query") as execute_query:
+            no_prefetch._fetch_all()
+        execute_query.assert_called_once()
+
+        uncached = person.addresses.all()
+        new_qs = person.addresses.all()
+        new_qs._fetch_all = Mock(side_effect=lambda: setattr(
+            new_qs,
+            "_result_cache",
+            fmdata.CacheIterator(iter([AddressPortal(model=person, record_id="10", city="A")])),
+        ))
+        uncached._clone = Mock(return_value=new_qs)
+        self.assertEqual(uncached[0].record_id, "10")
+
+        slice_manager = person.addresses.all()
+        slice_manager._set_new_slice(1, None)
+        self.assertEqual(slice_manager._slice_start, 1)
+        slice_manager._set_new_slice(1, 5)
+        slice_manager._set_new_slice(1, 2)
+        self.assertEqual(slice_manager._slice_start, 3)
+        self.assertEqual(slice_manager._slice_stop, 4)
+
+        resliced = person.addresses.all()[:5][2:]
+        self.assertEqual(resliced._slice_start, 2)
+        self.assertEqual(resliced._slice_stop, 5)
+
+        with self.assertRaises(AttributeError):
+            person.addresses.all().new(city="Rome")
+
+        portal = AddressPortal(model=person, city="Rome")
+        manager = person.addresses.all()
+        with patch.object(manager, "new", return_value=portal), patch.object(portal, "save", return_value=None):
+            self.assertIsNone(manager.create(city="Rome"))
+
+        with patch("fmdata.orm.portal_page_generator", return_value=iter([])) as page_generator_mock:
+            person.addresses.all().ignore_prefetched()._execute_query()
+        self.assertEqual(page_generator_mock.call_args.kwargs["limit"], fmdata.orm.A_REALLY_BIG_LIMIT)
+
+        sliced_manager = person.addresses.all().ignore_prefetched()
+        sliced_manager._slice_stop = 2
+        with patch("fmdata.orm.portal_page_generator", return_value=iter([])) as page_generator_mock:
+            sliced_manager._execute_query()
+        self.assertEqual(page_generator_mock.call_args.kwargs["limit"], 2)
+
     def test_portal_model_init_setattr_and_dump(self):
         person = self.make_person(name="Alice")
         portal = AddressPortal(model=person, city="Berlin", zip_code=10115)
@@ -187,6 +243,14 @@ class PortalModelAndManagerTests(unittest.TestCase):
             AddressPortal(city="X")
         with self.assertRaises(AttributeError):
             AddressPortal(model=person, unknown="x")
+
+        class PortalWithoutMeta(PortalModel):
+            city = fmdata.String(field_name="City", field_type=FMFieldType.Text)
+
+        with self.assertRaises(ValueError):
+            PortalWithoutMeta(model=person, portal_name=None, table_occurrence="TO", city="X")
+        with self.assertRaises(ValueError):
+            PortalWithoutMeta(model=person, portal_name="P", table_occurrence=None, city="X")
 
     def test_portal_model_save_delete_update_and_as_layout_model(self):
         person = self.make_person(name="Alice", age=30)
@@ -229,6 +293,52 @@ class PortalModelAndManagerTests(unittest.TestCase):
         portal.delete()
         person.save.assert_called_once()
         self.assertIsNone(portal.record_id)
+
+        portal = AddressPortal(model=person, city="Berlin")
+        portal.delete()
+        self.assertIsNone(portal.record_id)
+
+    def test_portal_model_extra_save_and_layout_branches(self):
+        class SimplePortal(PortalModel):
+            class Meta:
+                portal_name = "SimplePortal"
+                table_occurrence = "SimpleTO"
+
+            city = fmdata.String(field_name="City", field_type=FMFieldType.Text)
+
+        class SimpleLayout(Model):
+            class Meta:
+                client = CLIENT
+                layout = "SimpleLayout"
+
+            city = fmdata.String(field_name="City", field_type=FMFieldType.Text)
+
+        class SimpleLayoutWithPortal(Model):
+            class Meta:
+                client = CLIENT
+                layout = "SimpleLayoutWithPortal"
+
+            simple_portal = PortalField(model=SimplePortal, name="SimplePortal")
+
+        person = self.make_person(record_id="1", name="Alice", age=30)
+        portal = SimplePortal(model=person, record_id="10", mod_id="11", city="Rome")
+        layout_model = portal.as_layout_model(SimpleLayout)
+        self.assertEqual(layout_model.city, "Rome")
+        self.assertEqual(layout_model._updated_fields, {"city"})
+
+        holder = SimpleLayoutWithPortal(record_id="1")
+        created_portal = SimplePortal(model=holder, record_id="11", city="Rome")
+        manager = holder.simple_portal.all()
+        with patch.object(manager._meta_portal.field, "model", return_value=created_portal):
+            self.assertEqual(manager.new(city="Rome").record_id, "11")
+        with patch.object(manager._meta_portal.field, "model", return_value=created_portal), patch.object(created_portal, "save", return_value=None):
+            self.assertEqual(manager.create(city="Rome").record_id, "11")
+
+        with patch.object(person, "save") as save:
+            portal = AddressPortal(model=person, record_id="10", mod_id="11", city="Rome")
+            portal._updated_fields = set()
+            portal.save()
+        save.assert_called_once()
 
     def test_portal_manager_public_behaviour(self):
         person = self.make_person(record_id="1", name="Alice", age=30)
@@ -322,6 +432,78 @@ class PortalModelAndManagerTests(unittest.TestCase):
 class ModelManagerAndModelTests(unittest.TestCase):
     def make_person(self, **kwargs):
         return Person(**kwargs)
+
+    def test_model_manager_internal_branches(self):
+        with self.assertRaises(TypeError):
+            len(Person.objects)
+        with self.assertRaises(TypeError):
+            list(Person.objects.scripts_responses())
+
+        criteria = Person.objects.all()._process_find_omit_kwargs({
+            "name": Criteria.Exact("Alice"),
+            "age__raw": "10",
+            "name__exact": "A",
+            "name__startswith": "B",
+            "name__endswith": "C",
+            "name__contains": "D",
+            "age__gt": 1,
+            "age__gte": 2,
+            "age__lt": 3,
+            "age__lte": 4,
+            "age__range": (5, 6),
+        })
+        self.assertIn("Name", criteria)
+        self.assertIn("Age", criteria)
+
+        broken_model = type("BrokenModel", (), {"_meta": type("Meta", (), {"fields": {"broken": None}})()})()
+        broken_qs = Person.objects.all()
+        broken_qs._model_class = broken_model
+        with self.assertRaises(AttributeError):
+            broken_qs._retrive_meta_field_form_field_name("broken")
+
+        cached = Person.objects.all()
+        cached._result_cache = fmdata.CacheIterator(iter([self.make_person(record_id="1", name="Alice", age=30)]))
+        self.assertEqual(len(cached), 1)
+        cached._scripts_responses_cache = fmdata.CacheIterator(iter(["script"]))
+        self.assertEqual(list(cached.scripts_responses()), ["script"])
+        with self.assertRaises(ValueError):
+            Person.objects.all()[-1:]
+
+        uncached = Person.objects.all()
+        page = Page(
+            result=GetRecordsResult(
+                http_response=make_http_response(
+                    response={"data": [{"fieldData": {"Name": "Alice", "Age": 30}, "recordId": "1", "modId": "2"}]}
+                ),
+                layout="People",
+                client=CLIENT,
+            )
+        )
+        CLIENT.get_records_paginated.return_value = type("Paged", (), {"pages": fmdata.CacheIterator(iter([page]))})()
+        self.assertEqual(uncached[0].record_id, "1")
+
+        slice_manager = Person.objects.all()
+        slice_manager._set_new_slice(1, None)
+        self.assertEqual(slice_manager._slice_start, 1)
+        slice_manager._set_new_slice(1, 5)
+        slice_manager._set_new_slice(1, 2)
+        self.assertEqual(slice_manager._slice_start, 3)
+        self.assertEqual(slice_manager._slice_stop, 4)
+
+        empty = Person.objects.all()
+        empty_page = Page(
+            result=GetRecordsResult(
+                http_response=make_http_response(response={"data": []}),
+                layout="People",
+                client=CLIENT,
+            )
+        )
+        CLIENT.get_records_paginated.return_value = type("Paged", (), {"pages": fmdata.CacheIterator(iter([empty_page]))})()
+        self.assertIsNone(empty.first())
+
+        resliced = Person.objects.all()[:5][2:]
+        self.assertEqual(resliced._slice_start, 2)
+        self.assertEqual(resliced._slice_stop, 5)
 
     def test_model_init_refresh_and_basic_helpers(self):
         person = self.make_person(name="Alice", age=30, _consider_fields_as_updated=False)
@@ -437,6 +619,12 @@ class ModelManagerAndModelTests(unittest.TestCase):
         self.assertEqual(qs.get_delete_related_field_data([]), {})
         self.assertEqual(qs.get_delete_related_field_data([("P", "1")]), {"deleteRelated": "P.1"})
         self.assertEqual(qs.get_delete_related_field_data([("P", "1"), ("P", "2")]), {"deleteRelated": ["P.1", "P.2"]})
+
+        page_qs = Person.objects.all()[:1]
+        CLIENT.get_records_paginated.reset_mock()
+        CLIENT.get_records_paginated.return_value = type("Paged", (), {"pages": fake_pages})()
+        page_qs._execute_query()
+        self.assertEqual(CLIENT.get_records_paginated.call_args.kwargs["limit"], 1)
 
     def test_record_and_script_iterators(self):
         qs = Person.objects.all()
@@ -613,6 +801,17 @@ class ModelManagerAndModelTests(unittest.TestCase):
             self.make_person(record_id="1", mod_id="2").save()
         edit.assert_not_called()
 
+        person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+        person._updated_fields = set()
+        portal = AddressPortal(model=person, record_id="10", mod_id="11", city="Paris")
+        portal._updated_fields = set()
+        with patch.object(Person.objects, "_execute_edit_record") as edit:
+            person.save(portals=[portal])
+        edit.assert_not_called()
+        with patch("fmdata.orm.patch_from_model_or_portal", side_effect=[{}, {}]), patch.object(Person.objects, "_execute_edit_record") as edit:
+            person.save(portals=[portal])
+        edit.assert_not_called()
+
         create_result = CreateRecordResult(
             http_response=make_http_response(
                 response={
@@ -669,13 +868,40 @@ class ModelManagerAndModelTests(unittest.TestCase):
             self.make_person(record_id="1").save(portals=[AddressPortal(model=self.make_person(record_id="1"), city=None)])
         with self.assertRaises(ValueError):
             self.make_person(record_id="1").save(portals_to_delete=[AddressPortal(model=self.make_person(record_id="1"), city="X")])
+        with self.assertRaises(ValueError):
+            blank_person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+            blank_person.save(portals=[AddressPortal(model=blank_person)])
 
         mismatch_result = CreateRecordResult(
             http_response=make_http_response(response={"recordId": "1", "modId": "2", "newPortalRecordInfo": []})
         )
         with self.assertRaises(ValueError):
             with patch.object(Person.objects, "_execute_create_record", return_value=mismatch_result):
-                self.make_person(name="Alice").save(portals=[AddressPortal(model=self.make_person(name="Alice"), city="Berlin")])
+                owner = self.make_person(name="Alice")
+                owner.save(portals=[AddressPortal(model=owner, city="Berlin")])
+
+        clone_result = CreateRecordResult(
+            http_response=make_http_response(response={"recordId": "3", "modId": "4", "newPortalRecordInfo": []})
+        )
+        person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
+        person._updated_fields = set()
+        with patch.object(Person.objects, "_execute_create_record", return_value=clone_result) as create:
+            person.save(force_insert=True)
+        self.assertEqual(create.call_args.kwargs["field_data"], {"Age": 30, "Name": "Alice"})
+
+        mismatch_portal_result = CreateRecordResult(
+            http_response=make_http_response(
+                response={
+                    "recordId": "1",
+                    "modId": "2",
+                    "newPortalRecordInfo": [{"tableName": "OtherTO", "recordId": "10", "modId": "11"}],
+                }
+            )
+        )
+        with self.assertRaises(ValueError):
+            with patch.object(Person.objects, "_execute_create_record", return_value=mismatch_portal_result):
+                owner = self.make_person(name="Alice")
+                owner.save(portals=[AddressPortal(model=owner, city="Berlin")])
 
         person = self.make_person(record_id="1", mod_id="2", name="Alice", age=30)
 
@@ -726,9 +952,19 @@ class ModelManagerAndModelTests(unittest.TestCase):
         Person.objects._execute_edit_record("1", "2", {}, {}, [("P", "1"), ("P", "2")])
         self.assertEqual(CLIENT.edit_record.call_count, 2)
 
+        CLIENT.edit_record.reset_mock()
+        result = Mock()
+        result.raise_exception_if_has_error = Mock()
+        CLIENT.edit_record.return_value = result
+        Person.objects._execute_edit_record("1", "2", {}, {"Addresses": [{"City": "A"}]}, [])
+        self.assertEqual(CLIENT.edit_record.call_args.kwargs["portal_data"], {"Addresses": [{"City": "A"}]})
+
         person._updated_fields = {"name"}
         self.assertEqual(patch_from_model_or_portal(person, True, None), {"Name": "Alice"})
         self.assertEqual(patch_from_model_or_portal(person, False, ["age"]), {"Age": 30})
+
+        with self.assertRaises(NotImplementedError):
+            fmdata.orm.FieldCriteria().convert(Person._meta.fields["name"], Person)
 
     def test_model_manager_get_create_update_delete(self):
         with patch.object(Person, "refresh_from_db", return_value="refreshed") as refresh:

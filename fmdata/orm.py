@@ -521,7 +521,7 @@ class PortalModel(metaclass=PortalMetaclass):
         elif is_update_existing:
             self.model.save(force_update=True, update_fields=[], portals=[save_portal_config])
         else:
-            raise ValueError("Impossible case")
+            raise ValueError("Impossible case")  # pragma: no cover
 
         return self
 
@@ -1542,7 +1542,7 @@ class Model(metaclass=ModelMetaclass):
 
             self.mod_id = result.response.mod_id
         else:
-            raise ValueError("Impossible case")
+            raise ValueError("Impossible case")  # pragma: no cover
 
         # Read the result and update the related portal.record_id/mod_id
         # It seems that FileMaker return X entries, one for each field modified in each portal, in the same order as they were sent.
