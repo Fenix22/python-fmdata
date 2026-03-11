@@ -107,7 +107,7 @@ def make_client(auto_manage_session=False, version=FMVersion.V22):
 
 
 class ConstCoverageTests(unittest.TestCase):
-    CONST_PATH = Path("/Users/desiena/PycharmProjects/python-fmdata/fmdata/const.py")
+    CONST_PATH = Path(__file__).resolve().parent.parent / "fmdata" / "const.py"
 
     def _exec_const_module(self, custom_import):
         source = self.CONST_PATH.read_text()
